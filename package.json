@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "name": "hirely-backend",
   "version": "1.0.0",
   "main": "index.js",
@@ -10,10 +11,17 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@langchain/community": "^1.0.0",
+    "@langchain/core": "^1.0.1",
+    "@langchain/google-genai": "^1.0.0",
+    "@langchain/textsplitters": "^1.0.0",
     "@prisma/client": "^6.16.2",
     "@supabase/supabase-js": "^2.57.4",
-    "dotenv": "^17.2.2",
+    "cheerio": "^1.1.2",
+    "compute-cosine-similarity": "^1.1.0",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
+    "langchain": "^1.0.1",
     "redis": "^5.8.2"
   },
   "devDependencies": {
