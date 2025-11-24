@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <h2>HIRELY Test Interface</h2>
+    <form
+      action="http://localhost:4000/api/init-interview"
+      method="POST"
+      enctype="multipart/form-data"
+    >
+      <label>1. Paste Job Description:</label><br />
+      <textarea name="jobDescription" rows="5" cols="50">
+We need a Senior Node.js Engineer with experience in Redis, Docker, and AWS.</textarea
+      >
+      <br /><br />
+      <label>2. Upload Resume (PDF):</label><br />
+      <input type="file" name="resume" accept="application/pdf" />
+      <br /><br />
+      <button type="submit">Analyze & Generate Questions</button>
+    </form>
+  </body>
+</html>
