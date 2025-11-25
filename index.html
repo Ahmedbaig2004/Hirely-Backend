@@ -1,21 +1,233 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HIRELY - Full Flow Test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.6;
+      }
+      .box {
+        border: 1px solid #ccc;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        background: #f9f9f9;
+      }
+      .hidden {
+        display: none;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      textarea {
+        width: 100%;
+        padding: 10px;
+        margin-top: 10px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+      }
+      .chat-bubble {
+        background: #e9ecef;
+        padding: 10px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+      }
+      .ai-bubble {
+        background: #d1e7dd;
+        border-left: 5px solid #0f5132;
+      }
+      .score {
+        font-weight: bold;
+        color: #dc3545;
+      }
+      pre {
+        background: #333;
+        color: #fff;
+        padding: 10px;
+        overflow-x: auto;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
   <body>
-    <h2>HIRELY Test Interface</h2>
-    <form
-      action="http://localhost:4000/api/init-interview"
-      method="POST"
-      enctype="multipart/form-data"
-    >
-      <label>1. Paste Job Description:</label><br />
-      <textarea name="jobDescription" rows="5" cols="50">
-We need a Senior Node.js Engineer with experience in Redis, Docker, and AWS.</textarea
+    <h1>🤖 HIRELY Simulation</h1>
+
+    <div id="setup-phase" class="box">
+      <h3>1. Start New Interview</h3>
+      <label><strong>Job Description:</strong></label>
+      <textarea id="jd" rows="4">
+We need a Senior React Developer with experience in Next.js, TypeScript, and Performance Optimization.</textarea
       >
       <br /><br />
-      <label>2. Upload Resume (PDF):</label><br />
-      <input type="file" name="resume" accept="application/pdf" />
+      <label><strong>Resume (PDF):</strong></label>
+      <input type="file" id="resume" accept="application/pdf" />
       <br /><br />
-      <button type="submit">Analyze & Generate Questions</button>
-    </form>
+      <button onclick="startInterview()">🚀 Analyze Resume & Start</button>
+      <p id="loading-msg" class="hidden">
+        ⏳ Analyzing... Please wait (5-10s)...
+      </p>
+    </div>
+
+    <div id="interview-phase" class="box hidden">
+      <h3>💬 Technical Interview</h3>
+      <div
+        id="gap-report"
+        style="
+          margin-bottom: 20px;
+          padding: 10px;
+          background: #fff3cd;
+          border: 1px solid #ffecb5;
+        "
+      >
+        <strong>Gap Analysis:</strong> <span id="gap-text"></span>
+      </div>
+
+      <div class="chat-bubble ai-bubble">
+        <strong>AI Interviewer:</strong>
+        <p id="question-text" style="font-size: 1.2rem; font-weight: 500">
+          ...
+        </p>
+      </div>
+
+      <label><strong>Your Answer:</strong></label>
+      <textarea
+        id="answer-input"
+        rows="3"
+        placeholder="Type your answer here..."
+      ></textarea>
+      <br /><br />
+      <button onclick="submitAnswer()">Submit Answer</button>
+      <p id="grading-msg" class="hidden">🤔 Grading answer...</p>
+
+      <hr />
+      <h4>Recent Feedback:</h4>
+      <div id="last-feedback" style="font-size: 0.9rem; color: #666">
+        No feedback yet.
+      </div>
+    </div>
+
+    <div id="result-phase" class="box hidden">
+      <h3>🏁 Interview Complete!</h3>
+      <div
+        id="final-verdict"
+        style="font-size: 1.5rem; font-weight: bold; color: #198754"
+      ></div>
+      <p id="final-summary"></p>
+      <h4>Full Report JSON:</h4>
+      <pre id="json-dump"></pre>
+      <button onclick="location.reload()">Start Over</button>
+    </div>
+
+    <script>
+      let sessionId = null;
+      let currentQuestionText = "";
+
+      async function startInterview() {
+        const fileInput = document.getElementById("resume");
+        const jdInput = document.getElementById("jd");
+
+        if (fileInput.files.length === 0)
+          return alert("Please select a PDF file");
+
+        document.getElementById("loading-msg").classList.remove("hidden");
+
+        const formData = new FormData();
+        formData.append("resume", fileInput.files[0]);
+        formData.append("jobDescription", jdInput.value);
+
+        try {
+          const res = await fetch("http://localhost:4000/api/init-interview", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+
+          // Store ID
+          sessionId = data.sessionId;
+          currentQuestionText = data.firstQuestion.question;
+
+          // Switch UI
+          document.getElementById("setup-phase").classList.add("hidden");
+          document.getElementById("interview-phase").classList.remove("hidden");
+
+          // Populate Data
+          document.getElementById("gap-text").innerText =
+            data.analysis.gapAnalysis.feedback;
+          document.getElementById("question-text").innerText =
+            currentQuestionText;
+        } catch (err) {
+          alert("Error starting interview: " + err.message);
+        }
+      }
+
+      async function submitAnswer() {
+        const answerInput = document.getElementById("answer-input");
+        const answer = answerInput.value;
+        if (!answer) return alert("Type an answer!");
+
+        document.getElementById("grading-msg").classList.remove("hidden");
+
+        try {
+          const res = await fetch("http://localhost:4000/api/submit-answer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: sessionId,
+              question: currentQuestionText,
+              answer: answer,
+            }),
+          });
+          const data = await res.json();
+
+          document.getElementById("grading-msg").classList.add("hidden");
+          answerInput.value = ""; // Clear box
+
+          // Show Feedback from previous turn
+          const score = data.evaluation.score;
+          const feedback = data.evaluation.feedback;
+          document.getElementById(
+            "last-feedback"
+          ).innerHTML = `<strong>Last Score:</strong> <span class="score">${score}/100</span> <br> <strong>Feedback:</strong> ${feedback}`;
+
+          // CHECK IF GAME OVER
+          if (data.isFinished) {
+            document.getElementById("interview-phase").classList.add("hidden");
+            document.getElementById("result-phase").classList.remove("hidden");
+
+            const report = data.finalReport;
+            document.getElementById("final-verdict").innerText =
+              report.decision;
+            document.getElementById("final-summary").innerText = report.summary;
+            document.getElementById("json-dump").innerText = JSON.stringify(
+              report,
+              null,
+              2
+            );
+          } else {
+            // Show Next Question
+            currentQuestionText = data.nextQuestion.question;
+            document.getElementById("question-text").innerText =
+              currentQuestionText;
+          }
+        } catch (err) {
+          alert("Error submitting: " + err.message);
+        }
+      }
+    </script>
   </body>
 </html>
