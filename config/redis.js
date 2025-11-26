@@ -14,9 +14,7 @@ async function testRedis() {
   // Save Q&A
   await redis.hSet(`interview:${interviewId}`, {
     q1: JSON.stringify({
-      question: "What is JS?",
-      answer: "A language",
-      evaluation: "Good",
+    question,answer,evaluation
     }),
     q2: JSON.stringify({
       question: "What is Redis?",
