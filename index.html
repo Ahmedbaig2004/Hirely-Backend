@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HIRELY - Full Flow Test</title>
+    <title>HIRELY - Voice Interview Test</title>
     <style>
       body {
         font-family: sans-serif;
@@ -22,50 +22,75 @@
       .hidden {
         display: none;
       }
+
+      /* Button Styles */
       button {
-        background: #007bff;
-        color: white;
         border: none;
-        padding: 10px 20px;
-        border-radius: 4px;
+        padding: 12px 24px;
+        border-radius: 6px;
         cursor: pointer;
         font-size: 16px;
+        font-weight: bold;
+        transition: background 0.2s;
       }
-      button:hover {
+
+      .btn-primary {
+        background: #007bff;
+        color: white;
+      }
+      .btn-primary:hover {
         background: #0056b3;
       }
+
+      /* Recording Button Styles */
+      .btn-record {
+        background: #dc3545;
+        color: white;
+        margin-right: 10px;
+        width: 180px; /* Fixed width to prevent jumping */
+      }
+      .btn-record:hover {
+        background: #c82333;
+      }
+      .recording-active {
+        background: #bd2130 !important;
+        animation: pulse 1.5s infinite;
+      }
+
       textarea {
         width: 100%;
         padding: 10px;
         margin-top: 10px;
         border-radius: 4px;
         border: 1px solid #ddd;
+        font-family: inherit;
       }
       .chat-bubble {
         background: #e9ecef;
-        padding: 10px;
+        padding: 15px;
         border-radius: 10px;
-        margin-bottom: 10px;
+        margin-bottom: 15px;
       }
       .ai-bubble {
         background: #d1e7dd;
         border-left: 5px solid #0f5132;
       }
-      .score {
-        font-weight: bold;
-        color: #dc3545;
-      }
-      pre {
-        background: #333;
-        color: #fff;
-        padding: 10px;
-        overflow-x: auto;
-        border-radius: 5px;
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+        }
       }
     </style>
   </head>
   <body>
-    <h1>🤖 HIRELY Simulation</h1>
+    <h1>🤖 HIRELY Voice Interface</h1>
 
     <div id="setup-phase" class="box">
       <h3>1. Start New Interview</h3>
@@ -77,7 +102,9 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
       <label><strong>Resume (PDF):</strong></label>
       <input type="file" id="resume" accept="application/pdf" />
       <br /><br />
-      <button onclick="startInterview()">🚀 Analyze Resume & Start</button>
+      <button class="btn-primary" onclick="startInterview()">
+        🚀 Analyze Resume & Start
+      </button>
       <p id="loading-msg" class="hidden">
         ⏳ Analyzing... Please wait (5-10s)...
       </p>
@@ -92,6 +119,7 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
           padding: 10px;
           background: #fff3cd;
           border: 1px solid #ffecb5;
+          border-radius: 5px;
         "
       >
         <strong>Gap Analysis:</strong> <span id="gap-text"></span>
@@ -104,21 +132,39 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
         </p>
       </div>
 
-      <label><strong>Your Answer:</strong></label>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px">
+        <button id="recordBtn" class="btn-record" onclick="toggleRecording()">
+          🎤 Start Recording
+        </button>
+        <span style="align-self: center; color: #666">OR Type Answer:</span>
+      </div>
+
       <textarea
         id="answer-input"
         rows="3"
         placeholder="Type your answer here..."
       ></textarea>
-      <br /><br />
-      <button onclick="submitAnswer()">Submit Answer</button>
-      <p id="grading-msg" class="hidden">🤔 Grading answer...</p>
+      <br />
+      <button class="btn-primary" onclick="submitTextAnswer()">
+        Submit Text
+      </button>
 
-      <hr />
+      <p id="grading-msg" class="hidden">🤔 Transcribing & Grading...</p>
+
+      <hr style="margin-top: 20px" />
       <h4>Recent Feedback:</h4>
       <div id="last-feedback" style="font-size: 0.9rem; color: #666">
         No feedback yet.
       </div>
+      <div
+        id="last-transcript"
+        style="
+          font-size: 0.9rem;
+          color: #0d6efd;
+          margin-top: 5px;
+          font-style: italic;
+        "
+      ></div>
     </div>
 
     <div id="result-phase" class="box hidden">
@@ -130,13 +176,19 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
       <p id="final-summary"></p>
       <h4>Full Report JSON:</h4>
       <pre id="json-dump"></pre>
-      <button onclick="location.reload()">Start Over</button>
+      <button class="btn-primary" onclick="location.reload()">
+        Start Over
+      </button>
     </div>
 
     <script>
       let sessionId = null;
       let currentQuestionText = "";
+      let mediaRecorder;
+      let audioChunks = [];
+      let isRecording = false; // STATE TRACKER
 
+      // --- SETUP LOGIC ---
       async function startInterview() {
         const fileInput = document.getElementById("resume");
         const jdInput = document.getElementById("jd");
@@ -157,15 +209,11 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
           });
           const data = await res.json();
 
-          // Store ID
           sessionId = data.sessionId;
           currentQuestionText = data.firstQuestion.question;
 
-          // Switch UI
           document.getElementById("setup-phase").classList.add("hidden");
           document.getElementById("interview-phase").classList.remove("hidden");
-
-          // Populate Data
           document.getElementById("gap-text").innerText =
             data.analysis.gapAnalysis.feedback;
           document.getElementById("question-text").innerText =
@@ -175,57 +223,157 @@ We need a Senior React Developer with experience in Next.js, TypeScript, and Per
         }
       }
 
-      async function submitAnswer() {
+      // --- TOGGLE RECORDING LOGIC ---
+      function toggleRecording() {
+        if (!isRecording) {
+          startRecording();
+        } else {
+          stopAndSend();
+        }
+      }
+
+      async function startRecording() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          // IMPORTANT: Explicitly use webm for Chrome/Edge
+          const options = { mimeType: "audio/webm" };
+          mediaRecorder = new MediaRecorder(stream, options);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) audioChunks.push(event.data);
+          };
+
+          mediaRecorder.start();
+
+          // UPDATE UI
+          isRecording = true;
+          const btn = document.getElementById("recordBtn");
+          btn.innerText = "🟥 Stop & Send";
+          btn.classList.add("recording-active");
+        } catch (err) {
+          alert("Microphone access denied: " + err.message);
+        }
+      }
+
+      async function stopAndSend() {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+
+        mediaRecorder.stop();
+
+        // UPDATE UI
+        isRecording = false;
+        const btn = document.getElementById("recordBtn");
+        btn.innerText = "⏳ Processing...";
+        btn.classList.remove("recording-active");
+        btn.disabled = true; // Prevent double clicks
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+
+          if (audioBlob.size < 1000) {
+            alert("Recording too short! Please speak for at least 1 second.");
+            resetRecordButton();
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append("audio", audioBlob, "answer.webm");
+          formData.append("sessionId", sessionId);
+          formData.append("question", currentQuestionText);
+
+          // SEND!
+          await sendData(formData, true);
+        };
+      }
+
+      function resetRecordButton() {
+        const btn = document.getElementById("recordBtn");
+        btn.innerText = "🎤 Start Recording";
+        btn.disabled = false;
+        btn.classList.remove("recording-active");
+        isRecording = false;
+      }
+
+      // --- TEXT SUBMISSION ---
+      async function submitTextAnswer() {
         const answerInput = document.getElementById("answer-input");
         const answer = answerInput.value;
         if (!answer) return alert("Type an answer!");
 
+        await sendData({ answer: answer });
+        answerInput.value = "";
+      }
+
+      // --- SHARED SEND FUNCTION (UPDATES UI) ---
+      async function sendData(payload, isFile = false) {
         document.getElementById("grading-msg").classList.remove("hidden");
 
         try {
-          const res = await fetch("http://localhost:4000/api/submit-answer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+          const options = { method: "POST" };
+
+          if (isFile) {
+            options.body = payload;
+          } else {
+            options.headers = { "Content-Type": "application/json" };
+            options.body = JSON.stringify({
               sessionId: sessionId,
               question: currentQuestionText,
-              answer: answer,
-            }),
-          });
+              ...payload,
+            });
+          }
+
+          const res = await fetch(
+            "http://localhost:4000/api/submit-answer",
+            options
+          );
           const data = await res.json();
 
-          document.getElementById("grading-msg").classList.add("hidden");
-          answerInput.value = ""; // Clear box
-
-          // Show Feedback from previous turn
+          // 1. Show Feedback
           const score = data.evaluation.score;
           const feedback = data.evaluation.feedback;
           document.getElementById(
             "last-feedback"
-          ).innerHTML = `<strong>Last Score:</strong> <span class="score">${score}/100</span> <br> <strong>Feedback:</strong> ${feedback}`;
+          ).innerHTML = `<strong>Last Score:</strong> <span class="score" style="color:${
+            score > 50 ? "green" : "red"
+          }">${score}/100</span> <br> <strong>Feedback:</strong> ${feedback}`;
 
-          // CHECK IF GAME OVER
+          // 2. Show Transcript (if audio)
+          if (data.transcript) {
+            document.getElementById(
+              "last-transcript"
+            ).innerText = `🎙️ You said: "${data.transcript}"`;
+          } else {
+            document.getElementById("last-transcript").innerText = "";
+          }
+
+          // 3. CHECK GAME OVER or NEXT QUESTION
           if (data.isFinished) {
             document.getElementById("interview-phase").classList.add("hidden");
             document.getElementById("result-phase").classList.remove("hidden");
-
-            const report = data.finalReport;
             document.getElementById("final-verdict").innerText =
-              report.decision;
-            document.getElementById("final-summary").innerText = report.summary;
+              data.finalReport.decision;
+            document.getElementById("final-summary").innerText =
+              data.finalReport.summary;
             document.getElementById("json-dump").innerText = JSON.stringify(
-              report,
+              data.finalReport,
               null,
               2
             );
           } else {
-            // Show Next Question
+            // 🚀 THIS MOVES TO THE NEXT QUESTION
             currentQuestionText = data.nextQuestion.question;
             document.getElementById("question-text").innerText =
               currentQuestionText;
           }
         } catch (err) {
           alert("Error submitting: " + err.message);
+        } finally {
+          // Cleanup UI
+          document.getElementById("grading-msg").classList.add("hidden");
+          resetRecordButton();
         }
       }
     </script>

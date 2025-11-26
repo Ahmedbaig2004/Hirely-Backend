@@ -5,12 +5,15 @@ import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
 import { generateInterviewContext } from "./services/analyzer.js";
 import { stateManager } from "./services/stateManager.js";
+import { transcribeAudio } from "./services/transcriber.js";
+
 import {
   getNextQuestion,
   generateFinalReport,
 } from "./services/interviewer.js";
 import { evaluateAnswer } from "./services/retrieval.js"; // Assuming you export this
-
+import { PrismaClient } from "./generated/prisma/index.js";
+const prisma = new PrismaClient();
 dotenv.config();
 
 const app = express();
@@ -63,52 +66,99 @@ app.post("/api/init-interview", upload.single("resume"), async (req, res) => {
 // 2. SUBMIT ANSWER
 const MAX_QUESTIONS = 10; // 6 Fixed + 4 Adaptive
 
-app.post("/api/submit-answer", async (req, res) => {
-  const { sessionId, question, answer } = req.body;
+app.post("/api/submit-answer", upload.single("audio"), async (req, res) => {
+  try {
+    const { sessionId, question } = req.body;
+    let answerText = "";
 
-  // 1. Grade & Save (Same as before)
-  const evaluation = await evaluateAnswer(question, answer);
-  const updatedSession = await stateManager.saveTurn(
-    sessionId,
-    0,
-    question,
-    answer,
-    evaluation
-  );
+    // 🎤 STEP 1: Determine Input Type (Audio vs Text)
+    if (req.file) {
+      console.log(`🎧 Processing Audio Answer (${req.file.size} bytes)...`);
+      // Convert Audio -> Text using your local Whisper model
+      answerText = await transcribeAudio(req.file.buffer);
+    } else if (req.body.answer) {
+      // Fallback to standard text input
+      answerText = req.body.answer;
+    } else {
+      return res.status(400).json({ error: "No audio or text provided." });
+    }
 
-  // 2. CHECK FOR END OF INTERVIEW
-  // If we have asked enough questions, STOP.
-  if (updatedSession.history.length >= MAX_QUESTIONS) {
-    console.log("🏁 Interview Finished. Generating Report...");
+    console.log(`🗣️  Final Answer: "${answerText}"`);
 
-    const finalReport = await generateFinalReport(
-      updatedSession.history,
-      updatedSession.jobDescription
+    // 📝 STEP 2: Grade & Save (Using answerText)
+    const evaluation = await evaluateAnswer(question, answerText);
+
+    const updatedSession = await stateManager.saveTurn(
+      sessionId,
+      question,
+      answerText, // <--- Pass the transcribed text here
+      evaluation
     );
 
-    // Send "isFinished: true" so frontend knows to show the Result Page
+    // 🏁 STEP 3: Check for "Game Over"
+    if (updatedSession.history.length >= MAX_QUESTIONS) {
+      console.log("🏁 Interview Finished. Generating Report...");
+
+      const finalReport = await generateFinalReport(
+        updatedSession.history,
+        updatedSession.jobDescription
+      );
+      console.log("💾 Persisting to Database...");
+      await prisma.interview.create({
+        data: {
+          id: sessionId, // Use the same ID
+          jobDescription: updatedSession.jobDescription,
+          finalScore: 0, // You can calculate average score here if you want
+          finalFeedback: finalReport,
+          turns: {
+            create: updatedSession.history.map((turn) => ({
+              question: turn.question,
+              answer: turn.answer,
+              score: turn.score,
+              feedback: turn.feedback,
+              improvedAnswer: turn.betterAnswer,
+            })),
+          },
+        },
+      });
+
+      // 3. DELETE FROM REDIS (Cleanup)
+      console.log("🧹 Cleaning Redis...");
+      // We don't need the cache anymore because it's in Postgres
+      // Access redis client via stateManager (you might need to export client or add a delete method)
+      // For now, let's assume stateManager has a deleteSession method:
+      await stateManager.deleteSession(sessionId);
+
+      return res.json({
+        evaluation,
+        isFinished: true,
+        finalReport,
+        transcript: answerText, // Return this so the UI can show what the AI heard
+      });
+    }
+
+    // ➡️ STEP 4: Get Next Question (Queue vs Adaptive)
+    const queue = updatedSession.questionQueue;
+    let nextQ;
+
+    if (queue && queue.length > 0) {
+      // Still creating the baseline
+      nextQ = queue[0];
+    } else {
+      // Baseline done, drill down adaptively
+      nextQ = await getNextQuestion(updatedSession);
+    }
+
     return res.json({
       evaluation,
-      isFinished: true,
-      finalReport,
+      isFinished: false,
+      nextQuestion: nextQ,
+      transcript: answerText, // Return transcript for UI feedback
     });
+  } catch (error) {
+    console.error("❌ Answer Submission Error:", error);
+    res.status(500).json({ error: "Failed to process answer." });
   }
-
-  // 3. Continue if not finished (Same logic as before)
-  const queue = updatedSession.questionQueue;
-  let nextQ;
-
-  if (queue && queue.length > 0) {
-    nextQ = queue[0];
-  } else {
-    nextQ = await getNextQuestion(updatedSession);
-  }
-
-  res.json({
-    evaluation,
-    isFinished: false,
-    nextQuestion: nextQ,
-  });
 });
 
 // 3. Evaluate Answer (RAG Grading)

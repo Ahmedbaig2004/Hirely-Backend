@@ -11,20 +11,41 @@ datasource db {
 }
 
 model Candidate {
-  id         Int         @id @default(autoincrement())
-  name       String
-  email      String      @unique
-  createdAt  DateTime    @default(now())
-  password   String
+  id        Int      @id @default(autoincrement())
+  // For now, we can keep it simple or add more fields later
+  name      String?  
+  email     String?  @unique
   interviews Interview[]
 }
 
 model Interview {
-  id          Int       @id @default(autoincrement())
-  candidateId Int
-  createdAt   DateTime  @default(now())
-  score       Float?
-  candidate   Candidate @relation(fields: [candidateId], references: [id])
+  id          String   @id @default(uuid()) // Use UUID to match Redis SessionID
+  jobDescription String
+  finalScore  Float?
+  finalFeedback Json?  // Store the "Final Report" JSON here
+  createdAt   DateTime @default(now())
+  
+  // Link to Candidate (Optional for now if you don't have auth)
+  candidateId Int?
+  candidate   Candidate? @relation(fields: [candidateId], references: [id])
+
+  turns       InterviewTurn[] // The list of Q&A
+}
+
+model InterviewTurn {
+  id          Int      @id @default(autoincrement())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id])
+  
+  question    String
+  answer      String
+  score       Int
+  feedback    String
+  improvedAnswer String? // "Better Answer" (Point #2)
+  
+  softSkillScore Int?    // (Point #2 - Placeholder)
+  
+  createdAt   DateTime @default(now())
 }
 
 model Document {

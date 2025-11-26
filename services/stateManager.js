@@ -25,6 +25,15 @@ export const stateManager = {
     await client.set(`interview:${sessionId}`, JSON.stringify(sessionData));
     await client.expire(`interview:${sessionId}`, 86400); // 24h expiry
   },
+  async deleteSession(sessionId) {
+    try {
+      console.log(`   🗑️ Deleting Redis Key: interview:${sessionId}`);
+      await client.del(`interview:${sessionId}`);
+      console.log("   ✅ Redis Key Deleted");
+    } catch (e) {
+      console.error("   ❌ Redis Delete Failed:", e.message);
+    }
+  },
 
   // 2. Get Full Session Data
   async getSession(sessionId) {
@@ -33,6 +42,7 @@ export const stateManager = {
   },
 
   // 3. Save a Turn (Answer + Score) & Remove Question from Queue
+
   async saveTurn(sessionId, question, answer, evaluation) {
     // A. Fetch current state
     const sessionJson = await client.get(`interview:${sessionId}`);
@@ -45,7 +55,9 @@ export const stateManager = {
       question,
       answer,
       score: evaluation.score,
+      betterAnswer: evaluation.betterAnswer, // <--- NEW
       feedback: evaluation.feedback,
+      softSkillScore: null, // <--- Placeholder for later
       timestamp: new Date().toISOString(),
     });
 

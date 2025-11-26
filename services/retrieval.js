@@ -66,6 +66,7 @@ async function evaluateWithLLM(question, answer, contextString) {
       "score": number,
       "feedback": "string (max 2 sentences)",
       "correctness": "string (Correct/Incorrect/Partial)"
+      "betterAnswer": "string (A concise, ideal answer to this question)"
     }
   `;
 
@@ -116,6 +117,8 @@ async function evaluateAnswer(question, userAnswer) {
         score: 0,
         correctness: "Irrelevant",
         feedback: "Your answer appears to be off-topic.",
+        betterAnswer:
+          "N/A - The answer provided was unrelated to the technical question.",
       };
       printResult(result);
       return result;
@@ -169,6 +172,7 @@ function printResult(evaluation) {
   console.log(`🏆 FINAL SCORE: ${evaluation.score}/100`);
   console.log(`📝 Result: ${evaluation.correctness}`);
   console.log(`💬 Feedback: ${evaluation.feedback}`);
+  console.log(`✨ Better Answer: ${evaluation.betterAnswer}`);
   console.log("-".repeat(60));
 }
 
