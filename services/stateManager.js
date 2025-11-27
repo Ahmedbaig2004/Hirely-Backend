@@ -14,9 +14,8 @@ export const stateManager = {
   async initSession(sessionId, data) {
     const sessionData = {
       jobDescription: data.jobDescription,
-      // The "Queue" holds the questions we generated but haven't asked yet
       questionQueue: data.initialQuestions,
-      // The "History" holds answers and scores
+      gapAnalysis: data.gapAnalysis,
       history: [],
       createdAt: new Date().toISOString(),
     };

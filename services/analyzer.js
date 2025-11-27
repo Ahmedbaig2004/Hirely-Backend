@@ -32,7 +32,7 @@ const AnalysisSchema = z.object({
         reason: z.string().describe("Why this question was chosen"),
       })
     )
-    .length(6)
+    .length(5)
     .describe("Exactly 5 interview questions"), // Matched with prompt below
 });
 
@@ -67,13 +67,15 @@ TASK INSTRUCTIONS:
    - "Underrepresented Skills": These are skills that are briefly mentioned in the resume but lack the depth, frequency, or clarity expected by the job description.
    - For each missing or underrepresented skill, provide a "brief explanation" of why it is important for the role and the "potential impact" of its absence.
 
-2. "Generate Exactly 6 Interview Questions":
-   - "First Question": Begin with a "general introductory question": "Tell us about yourself."
+2. "Generate Exactly 5 Interview Questions":
+   - "First Question": Begin with a "general introductory question": "Tell us about yourself with the person name got from the resume."
    
-   - "Remaining 5 Questions": Generate "5 technical interview questions" based on the following guidelines:
+   - "Remaining 4 Questions": Generate "4 technical interview questions" based on the following guidelines:
      - "Cover the entire Job Description, not just the gaps.
-     - "Do NOT prioritize gaps — only one question maximum may target a missing/underrepresented skill
-     - The remaining questions should Test core competencies ,Assess real-world problem-solving,Cover multiple areas of the JD,Include soft skills if the JD mentions them
+     - use filler words like okay or great and many others to make it more human.
+    -be like a human interviewer
+    -can also ask about the proects from the resume
+     - The questions should Test core competencies ,Assess real-world problem-solving,Cover multiple areas of the JD,Include soft skills if the JD mentions them
      - If the resume closely matches the job description, generate "advanced questions" that test the candidate's depth of knowledge and problem-solving skills in the core technical stack.
    
    - "For each question": Include the following:

@@ -30,6 +30,7 @@ export const initInterview = async (req, res) => {
     await stateManager.initSession(sessionId, {
       jobDescription: req.body.jobDescription,
       initialQuestions: analysis.questions,
+      gapAnalysis: analysis.gapAnalysis,
     });
 
     res.json({
@@ -87,7 +88,8 @@ export const submitAnswer = async (req, res) => {
 
       const finalReport = await generateFinalReport(
         updatedSession.history,
-        updatedSession.jobDescription
+        updatedSession.jobDescription,
+        updatedSession.gapAnalysis // <--- PASS IT HERE
       );
 
       // Save to Postgres
@@ -141,4 +143,3 @@ export const submitAnswer = async (req, res) => {
     res.status(500).json({ error: "Failed to process answer." });
   }
 };
-

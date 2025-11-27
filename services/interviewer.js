@@ -22,6 +22,8 @@ const FinalReportSchema = z.object({
   summary: z.string().describe("3-sentence summary of performance"),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
+  recommendations: z.string().describe("Feedback for improvement"),
+  gapAnalysisReview: z,
 });
 
 export async function getNextQuestion(session) {
@@ -52,16 +54,24 @@ export async function getNextQuestion(session) {
     ${historyText}
 
     TASK:
-    Generate the NEXT follow-up question.
+    Generate the NEXT follow-up question to ask the candidate.
+    CRITICAL INSTRUCTIONS:
+    - It should adapt based on previous answers.
+    - use the persons name(not always) and some filler words like okay or great and many more to make it more human
     - If scores are low, ask easier fundamentals.
     - If scores are high, ask deeper system design.
     - Do NOT repeat questions.
+    
   `;
 
   const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
   return await structuredLlm.invoke(prompt);
 }
-export async function generateFinalReport(history, jobDescription) {
+export async function generateFinalReport(
+  history,
+  jobDescription,
+  gapAnalysis
+) {
   const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
 
   const historyText = history
@@ -69,10 +79,19 @@ export async function generateFinalReport(history, jobDescription) {
     .join("\n---\n");
   console.log("Generating Final Report with history:", historyText);
 
+  const gapContext = gapAnalysis
+    ? `
+    INITIAL RESUME ANALYSIS:
+    - Resume Match Score: ${gapAnalysis.matchScore}/100
+    - Identified Missing Skills: ${gapAnalysis.missingSkills.join(", ")}
+    - Initial Feedback: "${gapAnalysis.feedback}"
+  `
+    : "No initial gap analysis available.";
   const prompt = `
     You are a Hiring Manager making a final decision.
     
     JOB: ${jobDescription.substring(0, 500)}...
+    ${gapContext}  <-- THE AI NOW KNOWS THE WEAKNESSES
     
     FULL INTERVIEW TRANSCRIPT:
     ${historyText}
