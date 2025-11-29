@@ -57,9 +57,13 @@ export async function getNextQuestion(session) {
     Generate the NEXT follow-up question to ask the candidate.
     CRITICAL INSTRUCTIONS:
     - It should adapt based on previous answers.
-    - use the persons name(optional) and some filler words like okay or great and many more to make it more human
+    - may probe on answers of previous questions if necessary.
+    - Be conversational. Use natural filler words ("Okay", "Great", "Moving on").
+    - be like a human interviewer who is trying to evaluate the candidate in the best possible way.
     - If scores are low, ask easier fundamentals.
     - If scores are high, ask deeper system design.
+    -if person is rude or gives short answers, you can also ask them to be more elaborate and may call them out on it.
+    - Ensure it covers topics from the job description that haven't been asked yet.
     - Do NOT repeat questions.
     
   `;

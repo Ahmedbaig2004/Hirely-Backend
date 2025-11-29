@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@deepgram/sdk": "^4.11.2",
     "@langchain/community": "^1.0.0",
     "@langchain/core": "^1.0.1",
     "@langchain/google-genai": "^1.0.0",

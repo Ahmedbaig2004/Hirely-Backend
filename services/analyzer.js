@@ -43,7 +43,7 @@ export async function generateInterviewContext(resumeBuffer, jobDescription) {
   const pdfData = await pdf(resumeBuffer);
   // Safety Truncate
   const resumeText = pdfData.text.substring(0, 15000);
-
+  console.log("📝 Resume Text Extracted.", resumeText);
   console.log("🤖 Generating Gap Analysis & Questions...");
 
   const structuredLlm = llm.withStructuredOutput(AnalysisSchema);
@@ -72,27 +72,15 @@ TASK INSTRUCTIONS:
    
    - "Remaining 4 Questions": Generate "4 technical interview questions" based on the following guidelines:
      - "Cover the entire Job Description, not just the gaps.
-     - use filler words like okay or great and many others to make it more human.
-    -be like a human interviewer
-    -can also ask about the proects from the resume
+    - Difficulty: Match the seniority level of the JD (e.g., Senior roles get system design questions).     
+    - **Tone:** Be conversational. Use natural filler words ("Okay", "Great", "Moving on").      -be like a human interviewer
+      -Can also ask about the projects from the resume
+      - Donot say asking the last question if it is the final question
+
      - The questions should Test core competencies ,Assess real-world problem-solving,Cover multiple areas of the JD,Include soft skills if the JD mentions them
      - If the resume closely matches the job description, generate "advanced questions" that test the candidate's depth of knowledge and problem-solving skills in the core technical stack.
-   
-   - "For each question": Include the following:
-     - "Question": A direct, specific question that tests the candidate’s proficiency.
-     - "Topic": The technical area the question is targeting (e.g., Python, Data Structures, Cloud Computing, Project Management).
-     - "Difficulty": Rate the difficulty as "easy", "medium", or "hard", based on the depth of knowledge required.
-     - "Reason": Explain why this question was chosen, linking it to either a missing skill, underrepresented qualification, or key aspect of the job description.
-
 3. "Additional Instructions":
-   - If there are "soft skills" (e.g., communication, leadership) mentioned in the job description, generate questions to assess these as well. While the primary focus is technical, soft skills play a key role in many roles.
-   - Ensure that questions reflect the "real-world challenges" the candidate will face on the job. Use practical, scenario-based questions to assess how the candidate applies their skills in practical situations.
-   
-4. "Formatting":
-   - Provide the questions in a "clear, structured format", listing the question, topic, difficulty, and reason for each.
-   - "Do not generate more than 6 questions"—keep the focus on the most important areas.
-   - If a question relates to a gap or missing skill, explain "why this gap is critical" for the role.
-
+       - Return the data strictly adhering to the JSON schema provided.
   `;
 
   return await structuredLlm.invoke(prompt);
