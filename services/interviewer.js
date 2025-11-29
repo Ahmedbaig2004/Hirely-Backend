@@ -23,7 +23,7 @@ const FinalReportSchema = z.object({
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   recommendations: z.string().describe("Feedback for improvement"),
-  gapAnalysisReview: z,
+  // gapAnalysisReview: z.string().describe("JTell the initial gap analysis"),
 });
 
 export async function getNextQuestion(session) {
@@ -57,7 +57,7 @@ export async function getNextQuestion(session) {
     Generate the NEXT follow-up question to ask the candidate.
     CRITICAL INSTRUCTIONS:
     - It should adapt based on previous answers.
-    - use the persons name(not always) and some filler words like okay or great and many more to make it more human
+    - use the persons name(optional) and some filler words like okay or great and many more to make it more human
     - If scores are low, ask easier fundamentals.
     - If scores are high, ask deeper system design.
     - Do NOT repeat questions.

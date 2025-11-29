@@ -10,65 +10,70 @@ client.on("error", (err) => console.error("Redis Client Error", err));
 await client.connect();
 
 export const stateManager = {
-  // 1. Start Interview: Save Data
+  // 1. Start Interview
   async initSession(sessionId, data) {
     const sessionData = {
       jobDescription: data.jobDescription,
       questionQueue: data.initialQuestions,
       gapAnalysis: data.gapAnalysis,
+      // ✅ TRACK CURRENT QUESTION (Initialize with the first one)
+      currentQuestion: data.initialQuestions[0],
       history: [],
       createdAt: new Date().toISOString(),
     };
 
-    // Save as a simple JSON String (Compatible with all Redis versions)
     await client.set(`interview:${sessionId}`, JSON.stringify(sessionData));
-    await client.expire(`interview:${sessionId}`, 86400); // 24h expiry
-  },
-  async deleteSession(sessionId) {
-    try {
-      console.log(`   🗑️ Deleting Redis Key: interview:${sessionId}`);
-      await client.del(`interview:${sessionId}`);
-      console.log("   ✅ Redis Key Deleted");
-    } catch (e) {
-      console.error("   ❌ Redis Delete Failed:", e.message);
-    }
+    await client.expire(`interview:${sessionId}`, 86400);
   },
 
-  // 2. Get Full Session Data
+  async deleteSession(sessionId) {
+    await client.del(`interview:${sessionId}`);
+  },
+
   async getSession(sessionId) {
     const data = await client.get(`interview:${sessionId}`);
     return data ? JSON.parse(data) : null;
   },
 
-  // 3. Save a Turn (Answer + Score) & Remove Question from Queue
-
-  async saveTurn(sessionId, question, answer, evaluation) {
-    // A. Fetch current state
+  // 2. Update Current Question (Call this when generating Next Question)
+  async updateCurrentQuestion(sessionId, nextQuestionObj) {
     const sessionJson = await client.get(`interview:${sessionId}`);
-    if (!sessionJson) return null;
-
+    if (!sessionJson) return;
     const session = JSON.parse(sessionJson);
 
-    // B. Add to History
+    session.currentQuestion = nextQuestionObj; // Store full object {question, topic, difficulty}
+
+    await client.set(`interview:${sessionId}`, JSON.stringify(session));
+  },
+
+  // 3. Save Turn
+  async saveTurn(sessionId, question, answer, evaluation) {
+    const sessionJson = await client.get(`interview:${sessionId}`);
+    if (!sessionJson) return null;
+    const session = JSON.parse(sessionJson);
+
+    // ✅ GET METADATA from the stored currentQuestion
+    // Fallback to "Unknown" if something weird happens
+    const topic = session.currentQuestion?.topic || "General";
+    const difficulty = session.currentQuestion?.difficulty || "Medium";
+
     session.history.push({
       question,
       answer,
       score: evaluation.score,
-      betterAnswer: evaluation.betterAnswer, // <--- NEW
+      betterAnswer: evaluation.betterAnswer,
       feedback: evaluation.feedback,
-      softSkillScore: null, // <--- Placeholder for later
+      topic, // <--- Save Topic
+      difficulty, // <--- Save Difficulty
       timestamp: new Date().toISOString(),
     });
 
-    // C. Remove the First Question from Queue (if it exists)
-    // Logic: If we just asked Q1, we remove Q1 so Q2 becomes the new "Next"
+    // Remove from queue if it exists
     if (session.questionQueue.length > 0) {
-      session.questionQueue.shift(); // Remove the top item
+      session.questionQueue.shift();
     }
 
-    // D. Save back to Redis
     await client.set(`interview:${sessionId}`, JSON.stringify(session));
-
-    return session; // Return updated session
+    return session;
   },
 };

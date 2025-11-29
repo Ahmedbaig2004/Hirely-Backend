@@ -42,7 +42,8 @@ model InterviewTurn {
   score       Int
   feedback    String
   improvedAnswer String? // "Better Answer" (Point #2)
-  
+  topic          String?  
+  difficulty     String?
   softSkillScore Int?    // (Point #2 - Placeholder)
   
   createdAt   DateTime @default(now())

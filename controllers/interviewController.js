@@ -27,16 +27,23 @@ export const initInterview = async (req, res) => {
     );
 
     const sessionId = uuidv4();
+    const firstQuestion = analysis.questions[0];
+
+    // 1. Init Session
     await stateManager.initSession(sessionId, {
       jobDescription: req.body.jobDescription,
       initialQuestions: analysis.questions,
       gapAnalysis: analysis.gapAnalysis,
     });
 
+    // ✅ CHANGE 1: Set the First Question as "Current" in Redis
+    // This ensures we know the Topic/Difficulty when the user answers Q1
+    await stateManager.updateCurrentQuestion(sessionId, firstQuestion);
+
     res.json({
       sessionId,
       analysis,
-      firstQuestion: analysis.questions[0],
+      firstQuestion,
     });
   } catch (e) {
     console.error("Init Error:", e);
@@ -68,6 +75,7 @@ export const submitAnswer = async (req, res) => {
     // 📝 Grade
     const evaluation = await evaluateAnswer(question, answerText);
 
+    // Save to Redis (State Manager now grabs topic/diff from Current Question)
     const updatedSession = await stateManager.saveTurn(
       sessionId,
       question,
@@ -78,6 +86,8 @@ export const submitAnswer = async (req, res) => {
     // 🏁 Game Over Check
     if (updatedSession.history.length >= MAX_QUESTIONS) {
       console.log("🏁 Interview Finished. Generating Report...");
+
+      // Calculate Score
       const totalScore = updatedSession.history.reduce(
         (sum, turn) => sum + turn.score,
         0
@@ -86,11 +96,16 @@ export const submitAnswer = async (req, res) => {
         totalScore / updatedSession.history.length
       );
 
-      const finalReport = await generateFinalReport(
+      // Generate Final Report
+      const aireport = await generateFinalReport(
         updatedSession.history,
         updatedSession.jobDescription,
-        updatedSession.gapAnalysis // <--- PASS IT HERE
+        updatedSession.gapAnalysis
       );
+      const finalPayload = {
+        ...aireport,
+        originalGapAnalysis: updatedSession.gapAnalysis, // <--- This is the raw data you want
+      };
 
       // Save to Postgres
       await prisma.interview.create({
@@ -98,7 +113,7 @@ export const submitAnswer = async (req, res) => {
           id: sessionId,
           jobDescription: updatedSession.jobDescription,
           finalScore: averageScore,
-          finalFeedback: finalReport,
+          finalFeedback: finalPayload, // Stores { summary, strengths, gapAnalysisReview, etc. }
           turns: {
             create: updatedSession.history.map((turn) => ({
               question: turn.question,
@@ -106,6 +121,9 @@ export const submitAnswer = async (req, res) => {
               score: turn.score,
               feedback: turn.feedback,
               improvedAnswer: turn.betterAnswer,
+              // ✅ CHANGE 2: Save Detailed Metadata to DB
+              topic: turn.topic || "General",
+              difficulty: turn.difficulty || "Medium",
             })),
           },
         },
@@ -117,12 +135,12 @@ export const submitAnswer = async (req, res) => {
       return res.json({
         evaluation,
         isFinished: true,
-        finalReport,
+        finalReport: finalPayload,
         transcript: answerText,
       });
     }
 
-    // ➡️ Next Question
+    // ➡️ Next Question Logic
     const queue = updatedSession.questionQueue;
     let nextQ;
 
@@ -131,6 +149,10 @@ export const submitAnswer = async (req, res) => {
     } else {
       nextQ = await getNextQuestion(updatedSession);
     }
+
+    // ✅ CHANGE 3: Update "Current Question" in Redis
+    // This sets up the metadata (Topic/Difficulty) for the NEXT turn
+    await stateManager.updateCurrentQuestion(sessionId, nextQ);
 
     return res.json({
       evaluation,
