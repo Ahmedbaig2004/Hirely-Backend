@@ -10,24 +10,17 @@ datasource db {
   extensions = [vector]
 }
 
-model Candidate {
-  id        Int      @id @default(autoincrement())
-  // For now, we can keep it simple or add more fields later
-  name      String?  
-  email     String?  @unique
-  interviews Interview[]
-}
 
 model Interview {
   id          String   @id @default(uuid()) // Use UUID to match Redis SessionID
   jobDescription String
+  userId         String   // <--- LINK TO SUPABASE USER ID
   finalScore  Float?
   finalFeedback Json?  // Store the "Final Report" JSON here
   createdAt   DateTime @default(now())
   
   // Link to Candidate (Optional for now if you don't have auth)
-  candidateId Int?
-  candidate   Candidate? @relation(fields: [candidateId], references: [id])
+
 
   turns       InterviewTurn[] // The list of Q&A
 }

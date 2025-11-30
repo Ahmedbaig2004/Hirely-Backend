@@ -11,7 +11,7 @@ import { PrismaClient } from "../generated/prisma/index.js";
 import { generateAudio } from "../services/tts.js"; // Deepgram Service
 
 const prisma = new PrismaClient();
-const MAX_QUESTIONS = 10;
+const MAX_QUESTIONS = 7;
 
 /**
  * Initialize interview session
@@ -19,7 +19,10 @@ const MAX_QUESTIONS = 10;
 export const initInterview = async (req, res) => {
   try {
     if (!req.file) throw new Error("No resume uploaded");
-
+    const { userId } = req.body;
+    if (!userId) {
+      console.warn("⚠️ Warning: No userId provided in init request.");
+    }
     const analysis = await generateInterviewContext(
       req.file.buffer,
       req.body.jobDescription
@@ -27,11 +30,11 @@ export const initInterview = async (req, res) => {
 
     const sessionId = uuidv4();
     const firstQuestion = analysis.questions[0];
-
     await stateManager.initSession(sessionId, {
       jobDescription: req.body.jobDescription,
       initialQuestions: analysis.questions,
       gapAnalysis: analysis.gapAnalysis,
+      userId: userId,
     });
 
     await stateManager.updateCurrentQuestion(sessionId, firstQuestion);
@@ -115,6 +118,7 @@ export const submitAnswer = async (req, res) => {
       await prisma.interview.create({
         data: {
           id: sessionId,
+          userId: updatedSession.userId,
           jobDescription: updatedSession.jobDescription,
           finalScore: averageScore,
           finalFeedback: finalPayload,

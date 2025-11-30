@@ -58,7 +58,7 @@ const PRONUNCIATION_MAP = {
   cloudfront: "Cloud Front",
   docker: "Docker",
   kubernetes: "Kubernetes",
-  k8s: "Kates",
+  k8s: "Kubernates",
   terraform: "Terra Form",
   nginx: "Engine X",
   apache: "Apache",
@@ -68,7 +68,7 @@ const PRONUNCIATION_MAP = {
   netlify: "Net li fy",
 
   // ── Core Acronyms & Jargon ──────────────────────────────────────────────
-  api: "A P I ",
+  api: " A P I ",
   rest: "Rest",
   graphql: "Graph Q L.",
   grpc: "G R P C ",

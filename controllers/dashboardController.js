@@ -4,8 +4,10 @@ const prisma = new PrismaClient();
 // GET /api/interviews
 export const getInterviews = async (req, res) => {
   try {
+    const { userId } = req.query; // Get from query param
     const interviews = await prisma.interview.findMany({
       orderBy: { createdAt: "desc" },
+      where: { userId: userId }, // <--- FILTER HERE
       select: {
         id: true,
         jobDescription: true,
