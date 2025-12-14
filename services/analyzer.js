@@ -6,7 +6,7 @@ dotenv.config();
 
 // 1. Initialize Gemini
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.0-flash",
+  model: "gemini-2.5-flash-lite",
   temperature: 0.2,
   apiKey: process.env.GOOGLE_API_KEY,
 });

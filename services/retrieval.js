@@ -15,7 +15,7 @@ const embeddings = new GoogleGenerativeAIEmbeddings({
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 // CHANGE 1: Use the stable model to prevent 404 errors
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
 // CHANGE 2: Removed the manual 'function cosineSimilarity' (Dead code)
 
