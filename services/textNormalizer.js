@@ -32,6 +32,8 @@ const PRONUNCIATION_MAP = {
   "express.js": "Express J S ",
   nestjs: "Nest J S ",
   fastify: "Fastify",
+  "socket.io": "Socket I O", // <--- ADD THIS LINE
+  socketio: "Socket I O",
 
   // ── Databases & Storage ─────────────────────────────────────────────────
   sql: "S Q L.",
@@ -68,7 +70,9 @@ const PRONUNCIATION_MAP = {
   netlify: "Net li fy",
 
   // ── Core Acronyms & Jargon ──────────────────────────────────────────────
-  api: " A P I ",
+  api: " A.P.I ",
+  apis: " A.P.I.s ",
+  rpc: "R P C ",
   rest: "Rest",
   graphql: "Graph Q L.",
   grpc: "G R P C ",
@@ -172,39 +176,69 @@ const PRONUNCIATION_MAP = {
 // ── Build Regex Once (sorted longest → shortest) ─────────────────────────────
 const ESCAPED_KEYS = Object.keys(PRONUNCIATION_MAP)
   .sort((a, b) => b.length - a.length)
-  .map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .join("|");
 
+// Match dictionary terms bounded by non-word chars (so "aws" matches but "jaws" doesn't)
 const MASTER_REGEX = new RegExp(
-  `(?<=[\\s\\(\\[\\{,.;:!?\\n]|^)(${ESCAPED_KEYS})(?=[\\s\\)\\]\\},.;:!?\\n]|$)`,
+  `(?<=\\b|\\W|^)(${ESCAPED_KEYS})(?=\\b|\\W|$)`,
   "gi"
 );
 
-export function normalizeForSpeech(text, { addFillers = false } = {}) {
+/**
+ * Splits CamelCase and PascalCase into separate words.
+ * e.g., "useEffect" -> "use Effect", "XMLHttpRequest" -> "XML Http Request"
+ */
+function splitCamelCase(text) {
+  return (
+    text
+      // 1. Break consecutive capitals followed by lowercase (XMLHttp -> XML Http)
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      // 2. Break lowercase followed by capital (camelCase -> camel Case)
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+  );
+}
+
+export function normalizeForSpeech(text) {
   if (!text) return "";
 
   let clean = text.trim();
 
-  // 1. Replace all technical terms in one fast pass
+  // 1. DICTIONARY REPLACEMENT (Case-insensitive)
   clean = clean.replace(MASTER_REGEX, (match) => {
-    const replacement = PRONUNCIATION_MAP[match.toLowerCase()];
-    return replacement || match;
+    return PRONUNCIATION_MAP[match.toLowerCase()] || match;
   });
 
-  // 2. Smart Pacing – Natural breathing & emphasis
+  // 2. VERSION NUMBER HANDLING
+  // Converts "v18.2.0" or "Node 18.2" to "18 dot 2".
+  // (Prevents "18 point 2" which sounds like math, not versioning)
+  clean = clean.replace(
+    /\b(\d+)\.(\d+)(\.(\d+))?\b/g,
+    (match, p1, p2, p3, p4) => {
+      // If it looks like a version (e.g. 2.0.1 or v2.0), say "dot"
+      return `${p1} dot ${p2}${p4 ? " dot " + p4 : ""}`;
+    }
+  );
 
-  // 3. Optional: Add natural thinking fillers (great for mock interviews)
+  // 3. CAMELCASE SPLITTER
+  // We run this AFTER dictionary (so "XMLHttpRequest" isn't split if it's in the dict,
+  // but "getStaticProps" will become "get Static Props")
+  clean = splitCamelCase(clean);
 
-  // 4. Clean up markdown & code artifacts
+  // 4. CLEANUP SYMBOLS FOR AURA-2
   clean = clean
-    .replace(/\*\*/g, "") // **bold**
-    .replace(/__/g, "") // __bold__
-    .replace(/`/g, "") // `code`
-    .replace(/#/g, "number ") // #1 → number 1
-    .replace(/(\d)\.(\d)/g, "$1 point $2"); // 3.14 → 3 point 14
+    .replace(/\*\*/g, "") // Remove bold markdown
+    .replace(/`/g, "") // Remove code ticks
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1") // Remove links: [Title](url) -> Title
+    .replace(/[:;]/g, ",") // Deepgram pauses better on commas than semi-colons
+    .replace(/\s+/g, " "); // Collapse whitespace
 
-  // 5. Final polish
-  clean = clean.replace(/\s+/g, " ").replace(/\s+\./g, ".").trim();
+  // 5. AURA-2 PROSODY HACK
+  // Aura-2 reads lists better if they end with periods.
+  // If a line is short and doesn't end in punctuation, add a period.
+  if (!/[.?!]$/.test(clean)) {
+    clean += ".";
+  }
 
   return clean;
 }

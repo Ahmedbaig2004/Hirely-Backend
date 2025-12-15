@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash-lite",
+  model: "gemini-2.5-flash",
   apiKey: process.env.GOOGLE_API_KEY,
 });
 
@@ -58,11 +58,12 @@ export async function getNextQuestion(session) {
     CRITICAL INSTRUCTIONS:
     - It should adapt based on previous answers.
     - may probe on answers of previous questions if necessary.
-    - Be conversational. Use natural filler words ("Okay", "Great", "Moving on").
+    - Be conversational. Use natural filler words ("Okay", "Great", "Moving on") and many more.
     - be like a human interviewer who is trying to evaluate the candidate in the best possible way.
     - If scores are low, ask easier fundamentals.
     - If scores are high, ask deeper system design.
     -if person is rude or gives short answers, you can also ask them to be more elaborate and may call them out on it.
+    -but if you have called them out before donot use the same language again and use different phrases to call them out.
     - Ensure it covers topics from the job description that haven't been asked yet.
     - Do NOT repeat questions.
     

@@ -6,7 +6,7 @@ dotenv.config();
 
 // 1. Initialize Gemini
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash-lite",
+  model: "gemini-2.5-flash",
   temperature: 0.2,
   apiKey: process.env.GOOGLE_API_KEY,
 });
@@ -66,6 +66,8 @@ TASK INSTRUCTIONS:
    - "Missing Skills": These are skills or qualifications mentioned in the job description but not found in the resume. This includes certifications, specific technical expertise, or experiences.
    - "Underrepresented Skills": These are skills that are briefly mentioned in the resume but lack the depth, frequency, or clarity expected by the job description.
    - For each missing or underrepresented skill, provide a "brief explanation" of why it is important for the role and the "potential impact" of its absence.
+          - Donot explictly say that it is the final question on the final question or use finally
+
 
 2. "Generate Exactly 4 Interview Questions":
    - "First Question": Begin with a "general introductory question": "Tell us about yourself with the person name got from the resume."
