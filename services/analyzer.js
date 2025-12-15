@@ -32,8 +32,8 @@ const AnalysisSchema = z.object({
         reason: z.string().describe("Why this question was chosen"),
       })
     )
-    .length(5)
-    .describe("Exactly 5 interview questions"), // Matched with prompt below
+    .length(4)
+    .describe("Exactly 4 interview questions"), // Matched with prompt below
 });
 
 // 3. Main Function
@@ -67,15 +67,16 @@ TASK INSTRUCTIONS:
    - "Underrepresented Skills": These are skills that are briefly mentioned in the resume but lack the depth, frequency, or clarity expected by the job description.
    - For each missing or underrepresented skill, provide a "brief explanation" of why it is important for the role and the "potential impact" of its absence.
 
-2. "Generate Exactly 5 Interview Questions":
+2. "Generate Exactly 4 Interview Questions":
    - "First Question": Begin with a "general introductory question": "Tell us about yourself with the person name got from the resume."
    
-   - "Remaining 4 Questions": Generate "4 technical interview questions" based on the following guidelines:
+   - "Remaining 4 Questions": Generate "3 technical interview questions" based on the following guidelines:
+      - Donot explictly say that it is the final question on the final question
+
      - "Cover the entire Job Description, not just the gaps.
     - Difficulty: Match the seniority level of the JD (e.g., Senior roles get system design questions).     
     - **Tone:** Be conversational. Use natural filler words ("Okay", "Great", "Moving on").      -be like a human interviewer
       -Can also ask about the projects from the resume
-      - Donot say asking the last question if it is the final question
 
      - The questions should Test core competencies ,Assess real-world problem-solving,Cover multiple areas of the JD,Include soft skills if the JD mentions them
      - If the resume closely matches the job description, generate "advanced questions" that test the candidate's depth of knowledge and problem-solving skills in the core technical stack.

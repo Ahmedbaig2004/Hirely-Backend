@@ -11,7 +11,7 @@ import { PrismaClient } from "../generated/prisma/index.js";
 import { generateAudio } from "../services/tts.js"; // Deepgram Service
 
 const prisma = new PrismaClient();
-const MAX_QUESTIONS = 7;
+const MAX_QUESTIONS = 9;
 
 /**
  * Initialize interview session
