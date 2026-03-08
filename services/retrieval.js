@@ -1,15 +1,12 @@
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient } from "../generated/prisma/index.js";
-import similarity from "compute-cosine-similarity"; // Uses the library
+import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapterimport similarity from "compute-cosine-similarity"; // Uses the library
 import dotenv from "dotenv";
 dotenv.config();
 
-const prisma = new PrismaClient();
-
 // 1. Initialize Models
 const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "text-embedding-004",
+  model: "gemini-embedding-001", // 👈 force v1
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
@@ -32,7 +29,7 @@ async function retrieveContext(question) {
      FROM "Document" 
      ORDER BY embedding <=> $1::vector ASC 
      LIMIT 3`,
-    vectorString
+    vectorString,
   );
 
   return results;
@@ -111,7 +108,7 @@ async function evaluateAnswer(question, userAnswer) {
     // 2. Gatekeeper
     if (rawSimilarity < 0.3) {
       console.log(
-        `\n🛑 REJECTED: Similarity is below 30%. Answer is likely irrelevant.`
+        `\n🛑 REJECTED: Similarity is below 30%. Answer is likely irrelevant.`,
       );
       const result = {
         score: 0,
@@ -152,7 +149,7 @@ async function evaluateAnswer(question, userAnswer) {
     const evaluation = await evaluateWithLLM(
       question,
       userAnswer,
-      contextString || "No context provided."
+      contextString || "No context provided.",
     );
 
     if (!evaluation) throw new Error("AI Service Unavailable");

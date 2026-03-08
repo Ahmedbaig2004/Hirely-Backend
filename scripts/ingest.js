@@ -1,16 +1,19 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { PrismaClient } from "../generated/prisma/index.js";
+import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapter
 import * as cheerio from "cheerio";
+import dotenv from "dotenv";
+dotenv.config();
 
-const prisma = new PrismaClient();
 const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "text-embedding-004",
+  model: "gemini-embedding-001",
+  // 👈 force v1
 });
 
 // CONFIG
-const PAGE_BATCH_SIZE = 10; // Fetch 10 pages at a time
-const DELAY_MS = 200; // Pause to be polite to servers
+const PAGE_BATCH_SIZE = 5; // Reduced from 10
+const DELAY_MS = 2000; // Increased from 500
+const EMBED_BATCH_SIZE = 50; // Max chunks per embedding call
 
 /**
  * 🛡️ FALLBACK URLS
@@ -41,13 +44,13 @@ const FALLBACKS = {
     "https://www.typescriptlang.org/docs/handbook/2/narrowing.html",
     "https://www.typescriptlang.org/docs/handbook/2/functions.html",
     "https://www.typescriptlang.org/docs/handbook/2/objects.html",
-    "https://www.typescriptlang.org/docs/handbook/2/generics.html", // Crucial for Senior roles
+    "https://www.typescriptlang.org/docs/handbook/2/generics.html",
     "https://www.typescriptlang.org/docs/handbook/2/keyof-types.html",
-    "https://www.typescriptlang.org/docs/handbook/utility-types.html", // Pick, Omit, Partial
+    "https://www.typescriptlang.org/docs/handbook/utility-types.html",
   ],
   nextjs: [
     "https://nextjs.org/docs/app/building-your-application/routing/defining-routes",
-    "https://nextjs.org/docs/app/building-your-application/rendering/server-components", // Server vs Client is #1 question
+    "https://nextjs.org/docs/app/building-your-application/rendering/server-components",
     "https://nextjs.org/docs/app/building-your-application/rendering/client-components",
     "https://nextjs.org/docs/app/building-your-application/data-fetching/fetching-caching-and-revalidating",
     "https://nextjs.org/docs/app/api-reference/functions/server-actions",
@@ -57,7 +60,7 @@ const FALLBACKS = {
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-joins/",
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-inner-join/",
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-left-join/",
-    "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-indexes/", // Indexing is HUGE in interviews
+    "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-indexes/",
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-transaction/",
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-primary-key/",
     "https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-foreign-key/",
@@ -71,7 +74,6 @@ const FALLBACKS = {
     "https://www.patterns.dev/react/provider-pattern/",
   ],
   dsa: [
-    // Tech Interview Handbook is cleaner than GeeksForGeeks for scraping
     "https://www.techinterviewhandbook.org/algorithms/array/",
     "https://www.techinterviewhandbook.org/algorithms/string/",
     "https://www.techinterviewhandbook.org/algorithms/hash-table/",
@@ -101,19 +103,14 @@ const targets = [
     fallback: FALLBACKS.react,
   },
   {
-    xmlUrl: null, // Force Fallback
+    xmlUrl: null,
     category: "nextjs",
     mustInclude: [],
     fallback: FALLBACKS.nextjs,
   },
+  { xmlUrl: null, category: "sql", mustInclude: [], fallback: FALLBACKS.sql },
   {
-    xmlUrl: null, // Force Fallback
-    category: "sql",
-    mustInclude: [],
-    fallback: FALLBACKS.sql,
-  },
-  {
-    xmlUrl: null, // Force Fallback
+    xmlUrl: null,
     category: "typescript",
     mustInclude: [],
     fallback: FALLBACKS.typescript,
@@ -135,48 +132,85 @@ const targets = [
     fallback: FALLBACKS.javascript,
   },
   {
-    xmlUrl: null, // Force Fallback
+    xmlUrl: null,
     category: "design_patterns",
     mustInclude: [],
     fallback: FALLBACKS.design_patterns,
   },
-  {
-    xmlUrl: null, // Force Fallback
-    category: "dsa",
-    mustInclude: [],
-    fallback: FALLBACKS.dsa,
-  },
+  { xmlUrl: null, category: "dsa", mustInclude: [], fallback: FALLBACKS.dsa },
 ];
 
-// 1. Robust Recursive Sitemap Fetcher (FIX #1: REMOVED SLICE LIMIT)
+// ✅ Embed with retry + batching
+async function embedWithRetry(texts, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const vectors = await embeddings.embedDocuments(texts);
+
+      // Debug: log what came back
+      const emptyCount = vectors.filter((v) => !v || v.length === 0).length;
+      if (emptyCount > 0) {
+        console.warn(
+          `  ⚠️ Got ${emptyCount}/${vectors.length} empty vectors on attempt ${attempt}`,
+        );
+        throw new Error(`${emptyCount} empty vectors returned`);
+      }
+
+      return vectors;
+    } catch (err) {
+      if (attempt === retries) {
+        console.error(
+          `  ❌ Embedding failed after ${retries} attempts: ${err.message}`,
+        );
+        throw err;
+      }
+      const waitMs = attempt * 3000;
+      console.warn(
+        `  ⚠️ Embed attempt ${attempt} failed: ${err.message}. Retrying in ${waitMs / 1000}s...`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+}
+
+// ✅ Embed large chunk arrays in safe sub-batches
+async function embedInBatches(chunks) {
+  const textContents = chunks.map((c) => c.pageContent);
+  let allVectors = [];
+
+  for (let i = 0; i < textContents.length; i += EMBED_BATCH_SIZE) {
+    const batchTexts = textContents.slice(i, i + EMBED_BATCH_SIZE);
+    console.log(
+      `  🔢 Embedding sub-batch ${i / EMBED_BATCH_SIZE + 1} (${batchTexts.length} chunks)...`,
+    );
+
+    const batchVectors = await embedWithRetry(batchTexts);
+    allVectors = [...allVectors, ...batchVectors];
+
+    // Pause between sub-batches to respect RPM limits
+    if (i + EMBED_BATCH_SIZE < textContents.length) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+
+  return allVectors;
+}
+
 async function getUrlsFromSitemap(xmlUrl, mustIncludeFilters) {
   if (!xmlUrl) return [];
-
   console.log(`\n🗺️  Fetching XML: ${xmlUrl}`);
   try {
     const response = await fetch(xmlUrl, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
     });
-
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const xmlText = await response.text();
-
     const $ = cheerio.load(xmlText, { xmlMode: true });
     let collectedUrls = [];
-
-    // Check for Sub-Sitemaps
     const subSitemaps = $("sitemap > loc")
       .map((i, el) => $(el).text())
       .get();
-
     if (subSitemaps.length > 0) {
-      console.log(
-        `   📂 Found ${subSitemaps.length} sub-sitemaps. Recursively fetching ALL...`
-      );
-
-      // FIX #1: We iterate ALL sub-sitemaps now (removed .slice)
       for (const sub of subSitemaps) {
-        // Small pause to prevent overwhelming the server during recursion
         await new Promise((r) => setTimeout(r, 100));
         const subUrls = await getUrlsFromSitemap(sub, mustIncludeFilters);
         collectedUrls = [...collectedUrls, ...subUrls];
@@ -186,21 +220,17 @@ async function getUrlsFromSitemap(xmlUrl, mustIncludeFilters) {
         .map((i, el) => $(el).text())
         .get();
     }
-
-    const validUrls = collectedUrls.filter((url) =>
-      mustIncludeFilters.some((filter) => url.includes(filter))
+    return collectedUrls.filter((url) =>
+      mustIncludeFilters.some((filter) => url.includes(filter)),
     );
-
-    return validUrls;
   } catch (error) {
     console.warn(
-      `   ⚠️  Sitemap failed (${error.message}). Switching to manual fallback.`
+      `  ⚠️  Sitemap failed (${error.message}). Switching to manual fallback.`,
     );
     return [];
   }
 }
 
-// 2. Fetch and Clean Page
 async function fetchAndCleanPage(url) {
   try {
     const res = await fetch(url, {
@@ -208,78 +238,69 @@ async function fetchAndCleanPage(url) {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
     });
     if (!res.ok) return null;
-
     const html = await res.text();
     const $ = cheerio.load(html);
-
-    // REMOVE JUNK: Navs, Footers, Sidebars, Scripts
-    $("nav, footer, aside, script, style, noscript, header").remove();
+    $("nav, footer, aside, script, style, noscript, header, button").remove();
     $(".ad, .on-this-page, .cookie-banner, .search-bar, #docsearch").remove();
-
-    // Specifically remove "Ask AI" buttons often found in docs
-    $("button").remove();
-
-    // Target Main Content explicitly
     let content =
       $("article").text() ||
       $("main").text() ||
       $(".content").text() ||
       $("body").text();
-
-    // Clean whitespace
     content = content.replace(/\s+/g, " ").trim();
-
-    // Skip if it still looks like navigation garbage
-    if (content.includes("Start typing to search") || content.length < 200) {
-      return null;
-    }
-
+    if (content.length < 300) return null;
     const title = $("h1").first().text().trim() || url;
-
     return { url, title, content };
   } catch (e) {
     return null;
   }
 }
 
-// 3. Main Loop
 async function main() {
   console.log("🚀 Starting Optimized Ingestion...");
 
-  // FIX #3: PREVENT STALENESS (TRUNCATE)
-  console.log("🧹 Clearing old data (Full Refresh)...");
+  // ✅ Sanity check: confirm embedding API works before doing anything
+  console.log("\n🔬 Testing embedding API...");
+  try {
+    const testVec = await embeddings.embedQuery("hello world test");
+    if (!testVec || testVec.length === 0)
+      throw new Error("Empty vector returned");
+    console.log(`✅ Embedding API working! Dimensions: ${testVec.length}\n`);
+  } catch (err) {
+    console.error(`❌ Embedding API test FAILED: ${err.message}`);
+    console.error("Fix your API key or model name before continuing.");
+    process.exit(1);
+  }
+
+  console.log("🧹 Clearing old data...");
   await prisma.$executeRaw`TRUNCATE TABLE "Document" RESTART IDENTITY CASCADE`;
   console.log("✅ Database Cleaned.\n");
 
   for (const target of targets) {
     let urls = await getUrlsFromSitemap(target.xmlUrl, target.mustInclude);
-
-    if (urls.length === 0 && target.fallback) {
-      console.log(`   🛡️  Using Fallback URLs for ${target.category}`);
-      urls = target.fallback;
-    }
-
+    if (urls.length === 0 && target.fallback) urls = target.fallback;
     if (urls.length === 0) continue;
 
     console.log(
-      `   Processing ${urls.length} pages for [${target.category}]...`
+      `\n📂 Processing ${urls.length} pages for [${target.category}]...`,
     );
 
-    // Process Pages in Batches
     for (let i = 0; i < urls.length; i += PAGE_BATCH_SIZE) {
       const batchUrls = urls.slice(i, i + PAGE_BATCH_SIZE);
       const rawPages = await Promise.all(
-        batchUrls.map((url) => fetchAndCleanPage(url))
+        batchUrls.map((url) => fetchAndCleanPage(url)),
       );
       const validPages = rawPages.filter((p) => p && p.content.length > 300);
+
+      console.log(
+        `  📄 Pages fetched: ${validPages.length}/${batchUrls.length} valid`,
+      );
 
       if (validPages.length > 0) {
         const splitter = new RecursiveCharacterTextSplitter({
           chunkSize: 1000,
           chunkOverlap: 100,
         });
-
-        // Accumulate chunks for the entire batch of pages
         let batchChunks = [];
 
         for (const page of validPages) {
@@ -291,25 +312,33 @@ async function main() {
                 title: page.title,
                 category: target.category,
               },
-            ]
+            ],
           );
           batchChunks = [...batchChunks, ...pageChunks];
         }
 
-        // FIX #2: BATCH EMBEDDING (10x Faster)
-        if (batchChunks.length > 0) {
+        const sanitizedChunks = batchChunks.filter(
+          (c) => c.pageContent && c.pageContent.trim().length > 5,
+        );
+
+        console.log(`  🧩 Chunks to embed: ${sanitizedChunks.length}`);
+
+        if (sanitizedChunks.length > 0) {
           try {
-            // Extract just the text strings for embedding
-            const textContents = batchChunks.map((c) => c.pageContent);
+            // ✅ Use batched + retried embedding
+            const vectors = await embedInBatches(sanitizedChunks);
 
-            // ONE API call for all chunks in this batch
-            const vectors = await embeddings.embedDocuments(textContents);
-
-            // Insert Loop
             let savedCount = 0;
-            for (let j = 0; j < batchChunks.length; j++) {
-              const chunk = batchChunks[j];
-              const vector = vectors[j]; // Match vector to chunk
+            for (let j = 0; j < sanitizedChunks.length; j++) {
+              const chunk = sanitizedChunks[j];
+              const vector = vectors[j];
+
+              if (!vector || vector.length === 0) {
+                console.warn(
+                  `  ⚠️ Skipping empty vector for: ${chunk.metadata.source}`,
+                );
+                continue;
+              }
 
               await prisma.$executeRaw`
                 INSERT INTO "Document" (content, embedding, metadata, source)
@@ -322,16 +351,16 @@ async function main() {
               `;
               savedCount++;
             }
-            process.stdout.write(`+${savedCount} `); // Visual progress
+            process.stdout.write(`  ✅ Saved ${savedCount} chunks\n`);
           } catch (err) {
             console.error(`\n❌ Batch Embedding Error: ${err.message}`);
           }
         }
       }
-      // Delay to respect rate limits
+
       await new Promise((r) => setTimeout(r, DELAY_MS));
     }
-    console.log(`\n   ✅ Finished ${target.category}`);
+    console.log(`\n   ✅ Finished [${target.category}]`);
   }
 
   console.log("\n🏁 Done! Database populated.");

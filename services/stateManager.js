@@ -16,7 +16,7 @@ export const stateManager = {
       jobDescription: data.jobDescription,
       questionQueue: data.initialQuestions,
       gapAnalysis: data.gapAnalysis,
-      userId: data.userId, // <--- ✅ ADD THIS LINE (Crucial!)
+      userId: data.userId, 
       // ✅ TRACK CURRENT QUESTION (Initialize with the first one)
       currentQuestion: data.initialQuestions[0],
       history: [],

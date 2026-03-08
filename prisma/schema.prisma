@@ -1,13 +1,14 @@
 generator client {
-  provider        = "prisma-client-js"
+  provider        = "prisma-client"
   output          = "../generated/prisma"
   previewFeatures = ["postgresqlExtensions"]
+  engineType      = "library"
 }
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
   extensions = [vector]
+
 }
 
 
@@ -37,15 +38,55 @@ model InterviewTurn {
   improvedAnswer String? // "Better Answer" (Point #2)
   topic          String?  
   difficulty     String?
-  softSkillScore Int?    // (Point #2 - Placeholder)
+  softSkillScore Int?  
+    // 🆕 NEW: Voice analysis relationship
+  voiceAnalysis   VoiceAnalysis?  // One-to-one relationship  // (Point #2 - Placeholder)
   
   createdAt   DateTime @default(now())
+}
+
+model VoiceAnalysis {
+  id                  Int      @id @default(autoincrement())
+  interviewTurnId     Int      @unique
+  interviewTurn       InterviewTurn @relation(fields: [interviewTurnId], references: [id], onDelete: Cascade)
+
+  // Predictions
+  confidenceLevel     Float?
+  confidenceLabelText String?
+
+  // Voice Quality Metrics
+  speakingQuality     Float?
+  vocalStability      Float?
+  speakingFluency     Float?
+
+  // Detailed Features (for audit trail)
+  pitchMean           Float?
+  pitchStd            Float?
+  energyLevel         Float?
+  wordsPerMinute      Float?
+  pauseRatio          Float?
+  jitter              Float?
+  shimmer             Float?
+
+  // Model Info
+  modelVersion        String?
+  allProbabilities    Json?    // {"High": 78.5, "Medium": 15.2, "Low": 6.3}
+  rawFeatures         Json?    // All 23 features stored
+
+  // Processing
+  status              String   @default("pending")
+  errorMessage        String?
+  processingTimeMs    Int?
+
+  // Timestamps
+  processedAt         DateTime?
+  createdAt           DateTime @default(now())
 }
 
 model Document {
   id        Int                         @id @default(autoincrement())
   content   String
-  embedding Unsupported("vector(768)")?
+  embedding Unsupported("vector(3072)")?
   metadata  Json?
   source    String?
   createdAt DateTime                    @default(now())

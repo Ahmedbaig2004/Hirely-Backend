@@ -1,5 +1,4 @@
-import { PrismaClient } from "../generated/prisma/index.js";
-const prisma = new PrismaClient();
+import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapterconst prisma = new PrismaClient();
 
 // GET /api/interviews
 export const getInterviews = async (req, res) => {

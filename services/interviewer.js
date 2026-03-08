@@ -1,10 +1,14 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
 import dotenv from "dotenv";
+// 🆕 Note: The helper now returns both raw data AND generated insights
+import { getVoiceAnalysesForInterview } from "./voiceAnalysisHelper.js";
+
 dotenv.config();
 
+// Updated to Gemini 3 Flash for peak performance
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
+  model: "gemini-3-flash",
   apiKey: process.env.GOOGLE_API_KEY,
 });
 
@@ -14,31 +18,29 @@ const NextQuestionSchema = z.object({
   difficulty: z.string(),
   reason: z.string(),
 });
+
 const FinalReportSchema = z.object({
   decision: z.enum(["Strong Hire", "Hire", "Weak Hire", "No Hire"]),
   technicalLevel: z
     .string()
     .describe("Estimated seniority (e.g. Junior, Mid, Senior)"),
-  summary: z.string().describe("3-sentence summary of performance"),
+  summary: z
+    .string()
+    .describe("Professional analysis of the candidate's performance"),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
-  recommendations: z.string().describe("Feedback for improvement"),
-  // gapAnalysisReview: z.string().describe("JTell the initial gap analysis"),
+  recommendations: z
+    .string()
+    .describe("Advice for both technical and communication growth"),
 });
 
+/**
+ * Adaptive Questioning Logic
+ */
 export async function getNextQuestion(session) {
-  // 1. CHECK QUEUE (The Fixed Plan)
-  // If there are still questions in the list (Q2, Q3...), return the next one.
   if (session.questionQueue && session.questionQueue.length > 0) {
-    console.log(
-      `📥 Queue has ${session.questionQueue.length} items. Serving next...`
-    );
     return session.questionQueue[0];
   }
-
-  // 2. ADAPTIVE MODE (The AI Brain)
-  // If queue is empty, generate a new question based on history.
-  console.log("🧠 Queue Empty! Generating ADAPTIVE Question...");
 
   const historyText = session.history
     .map((h) => `Q: ${h.question}\nA: ${h.answer}\nScore: ${h.score}/100`)
@@ -46,73 +48,105 @@ export async function getNextQuestion(session) {
 
   const prompt = `
     You are a Dynamic Technical Interviewer.
-    
-    JOB CONTEXT:
-    ${session.jobDescription.substring(0, 500)}...
+    JOB CONTEXT: ${session.jobDescription.substring(0, 500)}...
+    INTERVIEW HISTORY: ${historyText}
 
-    INTERVIEW HISTORY:
-    ${historyText}
-
-    TASK:
-    Generate the NEXT follow-up question to ask the candidate.
-    CRITICAL INSTRUCTIONS:
-    - It should adapt based on previous answers.
-    - may probe on answers of previous questions if necessary.
-    - Be conversational. Use natural filler words ("Okay", "Great", "Moving on") and many more.
-    - be like a human interviewer who is trying to evaluate the candidate in the best possible way.
-    - If scores are low, ask easier fundamentals.
-    - If scores are high, ask deeper system design.
-    -if person is rude or gives short answers, you can also ask them to be more elaborate and may call them out on it.
-    -but if you have called them out before donot use the same language again and use different phrases to call them out.
-    - Ensure it covers topics from the job description that haven't been asked yet.
-    - Do NOT repeat questions.
-    
+    TASK: Generate the NEXT follow-up question. Adapt based on previous answers.
   `;
 
   const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
   return await structuredLlm.invoke(prompt);
 }
+
+/**
+ * Final Report Generation with Integrated Voice Insights
+ */
 export async function generateFinalReport(
+  sessionId,
   history,
   jobDescription,
-  gapAnalysis
+  gapAnalysis,
 ) {
-  const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
+  // 1. Calculate Technical Score
+  const technicalScore =
+    history.length > 0
+      ? history.reduce((sum, turn) => sum + turn.score, 0) / history.length
+      : 0;
+
+  // 2. Fetch interpreted Voice Data
+  let voiceAnalyses = [];
+  try {
+    console.log(`⏳ Extracting vocal insights for: ${sessionId}`);
+    // This now returns objects containing .insights and .metrics thanks to your helper update
+    voiceAnalyses = await getVoiceAnalysesForInterview(sessionId);
+  } catch (e) {
+    console.warn("⚠️ Voice analysis retrieval failed:", e.message);
+  }
+
+  // 3. Aggregate Communication Patterns
+  const voiceScore =
+    voiceAnalyses.length > 0
+      ? voiceAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
+        voiceAnalyses.length
+      : 50;
+
+  // Collect all unique bullet-point insights across the whole interview
+  const allVocalInsights = [
+    ...new Set(voiceAnalyses.flatMap((v) => v.insights)),
+  ];
 
   const historyText = history
-    .map((h) => `Q: ${h.question}\nA: ${h.answer}\nScore: ${h.score}/100`)
-    .join("\n---\n");
-  console.log("Generating Final Report with history:", historyText);
+    .map((h, i) => `Q${i + 1}: ${h.question}\nTechnical Score: ${h.score}/100`)
+    .join("\n\n");
 
-  const gapContext = gapAnalysis
-    ? `
-    INITIAL RESUME ANALYSIS:
-    - Resume Match Score: ${gapAnalysis.matchScore}/100
-    - Identified Missing Skills: ${gapAnalysis.missingSkills.join(", ")}
-    - Initial Feedback: "${gapAnalysis.feedback}"
-  `
-    : "No initial gap analysis available.";
+  // 4. The "Expert Recruiter" Prompt
   const prompt = `
-    You are a Hiring Manager making a final decision.
-    
-    JOB: ${jobDescription.substring(0, 500)}...
-    ${gapContext}  <-- THE AI NOW KNOWS THE WEAKNESSES
-    
-    FULL INTERVIEW TRANSCRIPT:
-    ${historyText}
+    You are an expert Technical Hiring Manager. 
 
-    CRITICAL INSTRUCTIONS:
-    1. TRUST THE SCORES. A score of 0 or 10 means the candidate FAILED that question completely. It is NOT missing data.
-    2. If the candidate consistently scores low (< 30), mark them as "No Hire".
-    3. If the candidate gives repetitive or nonsense answers (e.g. "I have experience with React..." for every question), flag this as a "Weakness".
+    TECHNICAL DATA:
+    - Score: ${technicalScore.toFixed(1)}/100
+    - History: ${historyText}
+    - Resume Gaps: ${JSON.stringify(gapAnalysis)}
 
+    COMMUNICATION DATA:
+    - Confidence Score: ${voiceScore.toFixed(1)}/100
+    - Observations: ${allVocalInsights.length > 0 ? allVocalInsights.join("; ") : "Stable and confident delivery."}
 
     TASK:
-    Evaluate the candidate's overall performance.
-    - Did they answer the core questions well?
-    - Did they struggle with the adaptive "hard" questions?
-    - Make a final hiring recommendation.
+    Evaluate the overall candidate. 
+    Look for "Confidence Mismatches": If the technical score is high but vocal insights mention 
+    "vocal tremors" or "frequent hesitations," note that they may know the theory but lack 
+    confidence in explaining it under pressure.
   `;
 
-  return await structuredLlm.invoke(prompt);
+  const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
+  const result = await structuredLlm.invoke(prompt);
+
+  // 5. Final Combined Payload for the Database & UI
+  return {
+    ...result,
+    scores: {
+      technical: parseFloat(technicalScore.toFixed(1)),
+      voice: parseFloat(voiceScore.toFixed(1)),
+      combined: parseFloat(
+        (technicalScore * 0.6 + voiceScore * 0.4).toFixed(1),
+      ),
+    },
+    voiceSummary: {
+      overallLabel:
+        voiceScore > 75
+          ? "Highly Confident"
+          : voiceScore > 50
+            ? "Moderately Confident"
+            : "Needs Improvement",
+      allInsights: allVocalInsights,
+      avgWPM:
+        voiceAnalyses.length > 0
+          ? (
+              voiceAnalyses.reduce((sum, v) => sum + v.wordsPerMinute, 0) /
+              voiceAnalyses.length
+            ).toFixed(0)
+          : "N/A",
+    },
+  };
 }
