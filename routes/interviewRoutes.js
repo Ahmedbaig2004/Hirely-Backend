@@ -4,6 +4,8 @@ import rateLimit from "express-rate-limit";
 import {
   initInterview,
   submitAnswer,
+  getVoiceProgress,
+  finalizeInterview,
 } from "../controllers/interviewController.js";
 
 const router = express.Router();
@@ -24,16 +26,16 @@ router.post(
   "/init-interview",
   aiLimiter,
   upload.single("resume"),
-  initInterview
+  initInterview,
 );
 
 // Submit answer (Protected by AI Limiter)
-router.post(
-  "/submit-answer",
-  aiLimiter,
-  upload.single("audio"),
-  submitAnswer
-);
+router.post("/submit-answer", aiLimiter, upload.single("audio"), submitAnswer);
+
+// Voice analysis progress polling
+router.get("/voice-progress/:sessionId", getVoiceProgress);
+
+// Finalize interview (generate report after all voice analyses complete)
+router.post("/finalize-interview", finalizeInterview);
 
 export default router;
-

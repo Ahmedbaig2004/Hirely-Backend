@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 4000;
 // A. CORS (Allow frontend to connect)
 app.use(
   cors({
-    origin: "*", // Allow localhost and 127.0.0.1
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
   })
 );

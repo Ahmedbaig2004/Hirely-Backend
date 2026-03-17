@@ -1,4 +1,4 @@
-import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapterconst prisma = new PrismaClient();
+import { prisma } from "../config/db.js";
 
 // GET /api/interviews
 export const getInterviews = async (req, res) => {
@@ -11,8 +11,8 @@ export const getInterviews = async (req, res) => {
         id: true,
         jobDescription: true,
         finalScore: true,
+        finalFeedback: true,
         createdAt: true,
-        // We don't need the full 'turns' or 'feedback' for the list view
       },
     });
     res.json(interviews);
@@ -25,12 +25,25 @@ export const getInterviews = async (req, res) => {
 // GET /api/interviews/:id
 export const getInterviewDetail = async (req, res) => {
   const { id } = req.params;
+  const { userId } = req.query; // Get userId from request (should be from auth)
+
   try {
     const interview = await prisma.interview.findUnique({
       where: { id },
-      include: { turns: true }, // Get the Q&A history
+      include: {
+        turns: {
+          include: { voiceAnalysis: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
+
     if (!interview) return res.status(404).json({ error: "Not found" });
+
+    // ✅ CRITICAL: Verify the user owns this interview
+    if (interview.userId !== userId) {
+      return res.status(403).json({ error: "Unauthorized: Cannot access this interview" });
+    }
 
     res.json(interview);
   } catch (error) {

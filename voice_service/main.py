@@ -2,635 +2,643 @@ from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import joblib
-import librosa
-import parselmouth
 import pandas as pd
 import numpy as np
 import json
 import os
 from datetime import datetime
-import asyncio
-from redis import Redis
+from upstash_redis import Redis
 import logging
-import soundfile as sf
-import noisereduce as nr
+import shap
+import opensmile
 from pydub import AudioSegment
-from pydub.effects import compress_dynamic_range
+import tempfile
+from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore")
+from dotenv import load_dotenv
 
-# Setup logging
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# STEP 2: GLOBAL STATE (for loaded models)
+# GLOBAL STATE
 # ============================================================
-
 models = {}
 
 # ============================================================
-# STEP 3: STARTUP FUNCTION (runs when service starts)
+# FEATURE KNOWLEDGE BASE
+# Human-readable labels and coaching tips for every top-45 feature.
+# SHAP identifies WHICH features drove the prediction; these dicts
+# translate that into language candidates can actually act on.
 # ============================================================
+FEATURE_LABELS = {
+    "loudnessPeaksPerSec":                        "Voice Energy Dynamics",
+    "loudness_sma3_percentile20.0":               "Baseline Volume Level",
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Upper Resonance Variability",
+    "loudness_dynamics_power":                    "Dynamic Expression Power",
+    "vocal_projection":                           "Vocal Projection Strength",
+    "F3amplitudeLogRelF0_sma3nz_amean":           "Upper Vocal Resonance",
+    "voiced_flow":                                "Speech Continuity",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Mid Resonance Variation",
+    "F2bandwidth_sma3nz_stddevNorm":              "Articulation Precision",
+    "F2amplitudeLogRelF0_sma3nz_amean":           "Mid Vocal Resonance",
+    "loudness_sma3_meanRisingSlope":              "Vocal Attack (Energy Rise)",
+    "loudness_sma3_stddevNorm":                   "Volume Variation",
+    "mfcc4V_sma3nz_amean":                        "Voice Timbre Quality",
+    "F0semitoneFrom27.5Hz_sma3nz_percentile50.0": "Median Pitch",
+    "F0semitoneFrom27.5Hz_sma3nz_percentile80.0": "Peak Pitch Level",
+    "F3bandwidth_sma3nz_amean":                   "Upper Formant Clarity",
+    "mfcc2_sma3_amean":                           "Voice Spectral Shape",
+    "mfcc2V_sma3nz_amean":                        "Voiced Spectral Quality",
+    "slopeUV500-1500_sma3nz_amean":               "High-Frequency Presence",
+    "mfcc1_sma3_stddevNorm":                      "Voice Quality Variation",
+    "hammarbergIndexV_sma3nz_stddevNorm":         "Voice Quality Consistency",
+    "alphaRatioUV_sma3nz_amean":                  "Spectral Energy Balance",
+    "mfcc3_sma3_stddevNorm":                      "Mid-Frequency Tonal Variation",
+    "StddevUnvoicedSegmentLength":                "Pause Pattern Regularity",
+    "mfcc4_sma3_amean":                           "Upper Spectral Quality",
+    "loudness_sma3_pctlrange0-2":                 "Loudness Dynamic Range",
+    "F0semitoneFrom27.5Hz_sma3nz_amean":          "Average Pitch",
+    "vocal_instability":                          "Voice Steadiness",
+    "HNRdBACF_sma3nz_amean":                      "Voice Clarity",
+    "spectralFlux_sma3_amean":                    "Vocal Expressiveness",
+    "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Stability Pattern",
+    "mfcc1V_sma3nz_stddevNorm":                   "Core Vocal Quality Variation",
+    "F1amplitudeLogRelF0_sma3nz_amean":           "Vowel Resonance Strength",
+    "mfcc4V_sma3nz_stddevNorm":                   "Tonal Quality Variation",
+    "mfcc4_sma3_stddevNorm":                      "Spectral Tonal Variation",
+    "logRelF0-H1-H2_sma3nz_amean":               "Voice Breathiness / Tension",
+    "spectralFluxV_sma3nz_stddevNorm":            "Expressive Variation",
+    "equivalentSoundLevel_dBp":                   "Overall Sound Level",
+    "F2frequency_sma3nz_stddevNorm":              "Vowel Quality Variation",
+    "loudness_sma3_meanFallingSlope":             "Vocal Release",
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Variation",
+    "slopeV500-1500_sma3nz_amean":                "Voice Brightness",
+    "F1frequency_sma3nz_stddevNorm":              "Vowel Articulation Variation",
+    "F0semitoneFrom27.5Hz_sma3nz_percentile20.0": "Low-End Pitch",
+    "shimmerLocaldB_sma3nz_amean":                "Volume Consistency",
+}
 
+# Positive = this feature pushed the score UP (good); negative = pushed DOWN (area to work on)
+FEATURE_TIPS = {
+    "loudnessPeaksPerSec": {
+        "positive": "Your speech had strong, well-distributed energy peaks — emphasizing key points with volume variation signals confidence and keeps the interviewer engaged.",
+        "negative": "Your speech lacked distinct energy peaks. Try consciously stressing key words and conclusions with a slight volume boost to sound more decisive and engaged.",
+    },
+    "loudness_sma3_percentile20.0": {
+        "positive": "Your baseline volume was strong, staying audible even in quieter moments — this prevents the listener from straining to hear you.",
+        "negative": "Your quieter moments dropped very soft. Maintain an audible baseline volume even when pausing to think — dropping too quiet signals uncertainty.",
+    },
+    "vocal_projection": {
+        "positive": "Strong vocal projection — your voice carried confidently, making you sound present and authoritative throughout your answer.",
+        "negative": "Your vocal projection was weaker than ideal. Try speaking as if addressing someone at the far end of a conference table — project from the diaphragm, not the throat.",
+    },
+    "voiced_flow": {
+        "positive": "Excellent speech continuity — you spoke in smooth, connected segments without awkward fragmentation, signaling genuine fluency and solid preparation.",
+        "negative": "Your speech had fragmented voiced segments with gaps between phrases. Using a simple structure (\"first... then... finally...\") before answering helps maintain a continuous, confident delivery.",
+    },
+    "vocal_instability": {
+        "positive": "Your voice was steady with minimal micro-tremor — low pitch and volume fluctuations project composure and control under pressure.",
+        "negative": "Vocal micro-tremor was detected (minute combined pitch and volume fluctuations). Taking a slow diaphragmatic breath before answering physically calms the nervous system and steadies the voice.",
+    },
+    "loudness_dynamics_power": {
+        "positive": "Strong dynamic expression — your loudness range combined with energy peaks created an engaging, varied delivery that holds attention.",
+        "negative": "Limited dynamic expression detected. Your loudness range was narrow with few energy peaks — deliberately vary your energy: louder for key points, softer for context.",
+    },
+    "HNRdBACF_sma3nz_amean": {
+        "positive": "High voice clarity — your harmonics-to-noise ratio was strong, meaning your voice sounded clean and resonant rather than breathy or rough.",
+        "negative": "Reduced voice clarity detected — a noisier voice signal sounds breathy or strained, which listeners associate with anxiety. Staying well-hydrated and doing light vocal warm-ups before interviews helps significantly.",
+    },
+    "spectralFlux_sma3_amean": {
+        "positive": "Good vocal expressiveness — your voice changed dynamically across your response, making your delivery feel alive and invested rather than recited.",
+        "negative": "Limited vocal expressiveness detected — a spectrally flat voice sounds monotone. Vary your pace, pitch contour, and emphasis on different parts of your answer.",
+    },
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
+        "positive": "Natural pitch variation — you used good intonation patterns that made your delivery sound conversational and engaged rather than rehearsed.",
+        "negative": "Limited pitch variation detected — a flatter pitch contour sounds disengaged. Let your pitch naturally rise when introducing a point and fall conclusively at the end.",
+    },
+    "F0semitoneFrom27.5Hz_sma3nz_amean": {
+        "positive": "Your average pitch was in a confident, natural conversational range that resonates well.",
+        "negative": "Your average pitch was outside an optimal range — very high pitches can signal stress, very low pitches can reduce clarity. Recording practice sessions and listening back helps you calibrate.",
+    },
+    "StddevUnvoicedSegmentLength": {
+        "positive": "Consistent pause lengths — your pauses followed a regular pattern, signaling structured thinking and deliberate pacing rather than stumbling.",
+        "negative": "Irregular pause lengths detected — mixing very short and very long silences creates an uneven rhythm. Aim for purposeful pauses of 1-2 seconds max when transitioning between ideas.",
+    },
+    "shimmerLocaldB_sma3nz_amean": {
+        "positive": "Consistent volume — your word-to-word loudness variation was low, projecting a controlled and steady delivery.",
+        "negative": "Volume inconsistency detected — your loudness fluctuated between words more than ideal. Focus on maintaining steady breath support throughout each sentence.",
+    },
+    "loudness_sma3_pctlrange0-2": {
+        "positive": "Good loudness range — you used a healthy spread of volume levels, giving your speech natural dynamics without sounding erratic.",
+        "negative": "Very narrow loudness range — speaking with minimal volume variation flattens your delivery. Consciously vary your energy level across the answer for a more engaging effect.",
+    },
+    "logRelF0-H1-H2_sma3nz_amean": {
+        "positive": "Balanced voice tension — your voice showed a healthy balance between breath and phonation, sounding natural and confident rather than strained or breathy.",
+        "negative": "Voice tension imbalance detected — this can indicate breathiness (anxiety, insufficient closure) or pressed phonation (over-tension). Focus on relaxed, supported phonation with even breath flow.",
+    },
+    "equivalentSoundLevel_dBp": {
+        "positive": "Good overall sound level — you spoke at a clearly audible volume throughout, making it easy to follow your answers.",
+        "negative": "Your overall speaking volume was below optimal. Speaking slightly louder (as if the person is 2 meters away) projects more confidence and authority.",
+    },
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
+        "positive": "Good upper resonance variation — variability in your upper harmonics adds richness and liveliness to your voice.",
+        "negative": "Flat upper resonance — limited variation in your upper harmonics makes the voice sound less resonant. Opening up the back of the throat slightly while speaking can help.",
+    },
+    "F2amplitudeLogRelF0_sma3nz_amean": {
+        "positive": "Strong mid vocal resonance — your second formant energy was well-projected, contributing to a clear and intelligible voice.",
+        "negative": "Weak mid vocal resonance — low second formant amplitude makes your voice sound thinner. Working on open-mouth articulation helps strengthen this.",
+    },
+    "F2bandwidth_sma3nz_stddevNorm": {
+        "positive": "Good articulation precision — consistent formant bandwidth variation indicates clear, well-formed vowels across your speech.",
+        "negative": "Inconsistent articulation precision detected — variable formant bandwidths indicate unclear vowel formation. Slow down slightly and open your mouth more when articulating.",
+    },
+    "spectralFluxV_sma3nz_stddevNorm": {
+        "positive": "Good expressive variation in voiced segments — your voice changed dynamically where it mattered most.",
+        "negative": "Limited expressive variation in voiced speech — your voice stayed too uniform across words. Let your voice shape each idea differently.",
+    },
+    "loudness_sma3_meanRisingSlope": {
+        "positive": "Strong vocal attack — your energy rises quickly when starting phrases, which sounds assertive and purposeful.",
+        "negative": "Weak vocal attack — your energy was slow to build at the start of phrases. Beginning phrases with slightly more energy makes you sound more confident.",
+    },
+    "loudness_sma3_stddevNorm": {
+        "positive": "Natural volume variation — your loudness varied in a healthy way that sounds expressive rather than flat.",
+        "negative": "Unusual volume variation pattern — either too flat or too erratic. Aim for natural speech rhythms where key words have slightly more energy.",
+    },
+}
+
+
+def get_generic_tip(label: str, is_positive: bool) -> str:
+    """Fallback tip for features not in FEATURE_TIPS."""
+    if is_positive:
+        return f"Your {label.lower()} contributed positively to your confidence score — this is a vocal strength to maintain."
+    return f"Your {label.lower()} reduced your confidence score. Targeted vocal practice focusing on this dimension can improve future performance."
+
+
+# ============================================================
+# STARTUP / SHUTDOWN
+# ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    This runs once when the service starts.
-    Loads all models into memory (no delay on requests).
-    """
-
-    # STARTUP
     print("\n" + "="*60)
-    print("🚀 VOICE ANALYSIS SERVICE STARTING...")
+    print("VOICE ANALYSIS SERVICE STARTING...")
     print("="*60)
-
     try:
-        print("⏳ Loading machine learning models...")
+        print("Loading models and initializing tools...")
 
-        # Load scaler
-        models['scaler'] = joblib.load("models/voice_scaler.pkl")
-        print("   ✅ Scaler loaded")
+        models['final_model'] = joblib.load("models/xgboost_final_engineered_45features.pkl")
+        models['top_features'] = joblib.load("models/top_45_features_engineered.pkl")
+        print(f"   XGBoost model loaded — {len(models['top_features'])} features")
 
-        # Load encoder
-        models['encoder'] = joblib.load("models/label_encoder.pkl")
-        print(f"   ✅ Encoder loaded - Classes: {models['encoder'].classes_}")
+        models['smile'] = opensmile.Smile(
+            feature_set=opensmile.FeatureSet.eGeMAPSv02,
+            feature_level=opensmile.FeatureLevel.Functionals,
+        )
+        print("   openSMILE eGeMAPSv02 initialized")
 
-        # Load model
-        models['xgb_model'] = joblib.load("models/voice_confidence_xgb.pkl")
-        print("   ✅ XGBoost model loaded")
+        models['shap_explainer'] = shap.TreeExplainer(models['final_model'])
+        print("   SHAP TreeExplainer ready")
 
-        print("\n✅ ALL MODELS LOADED SUCCESSFULLY!")
+        print("\nSERVICE READY!")
         print("="*60 + "\n")
-
-    except FileNotFoundError as e:
-        print(f"\n❌ ERROR: Model file not found!")
-        print(f"   Make sure these files exist in voice_service/models/:")
-        print(f"   - voice_scaler.pkl")
-        print(f"   - label_encoder.pkl")
-        print(f"   - voice_confidence_xgb.pkl")
-        print(f"\n   Error: {e}")
-        raise
     except Exception as e:
-        print(f"\n❌ ERROR loading models: {e}")
+        print(f"\nStartup failed: {e}")
         raise
 
-    yield  # Application runs here
+    yield
 
-    # SHUTDOWN (cleanup when service stops)
-    print("\n⏹️  Voice analysis service shutting down...")
+    print("\nVoice analysis service shutting down...")
+
 
 # ============================================================
-# STEP 4: CREATE FASTAPI APP
+# FASTAPI APP
 # ============================================================
-
 app = FastAPI(
     title="Hirely Voice Analysis Service",
     description="Analyzes candidate voice confidence from interview audio",
     lifespan=lifespan
 )
 
-# Connect to Redis
+# Upstash Redis (REST API — not standard redis library)
 try:
-    redis_client = Redis.from_url(
-        os.getenv("REDIS_URL", "redis://localhost:6379"),
-        decode_responses=True
+    redis_client = Redis(
+        url=os.getenv("REDIS_URL"),
+        token=os.getenv("REDIS_TOKEN"),
     )
-    redis_client.ping()  # Test connection
-    print("✅ Redis connected")
+    redis_client.ping()
+    print("Upstash Redis connected")
 except Exception as e:
-    print(f"⚠️  Redis connection failed: {e}")
-    print("   You can continue, but background tasks won't be queued")
+    print(f"Upstash Redis connection failed: {e}")
+    redis_client = None
+
 
 # ============================================================
-# STEP 5: FEATURE EXTRACTION FUNCTION
+# FEATURE EXTRACTION
 # ============================================================
-
-def extract_voice_features(audio_path: str, transcript_text: str = None) -> dict:
+def extract_opensmile_features(filepath: str) -> pd.DataFrame:
     """
-    Extract 23 acoustic features using Script 1's dual audio pipeline.
-
-    PIPELINE:
-    1. Load audio (raw)
-    2. Extract noise profile (first 0.5 seconds)
-    3. Create CLEAN version (80% noise reduction) → for voice activity detection
-    4. Create RAW version (60% noise reduction) → for feature analysis
-    5. Extract features from raw version
-    6. Calculate accurate WPM from Express transcript
-
-    Args:
-        audio_path: Path to audio file (wav, mp3, etc.)
-        transcript_text: Pre-transcribed text from Express backend
-                        REQUIRED for accurate WPM calculation
-
-    Returns:
-        Dictionary with 23 features matching training data
+    Extract eGeMAPSv02 functionals using openSMILE.
+    Falls back to a WAV-converted temp file if direct processing fails
+    (handles WebM/Opus audio from the browser recorder).
     """
+    fpath = Path(filepath)
+    if not fpath.exists():
+        raise FileNotFoundError(f"Audio file not found: {filepath}")
+
+    logger.info(f"Extracting openSMILE features: {fpath.name}")
 
     try:
-        print(f"   📊 Loading audio from: {audio_path}")
-
-        # ============================================================
-        # STEP 1: LOAD AUDIO
-        # ============================================================
-        if not os.path.exists(audio_path):
-            raise FileNotFoundError(f"Audio file not found: {audio_path}")
-
-        y, sr = librosa.load(audio_path, sr=None, mono=True)
-        print(f"   ✅ Audio loaded: {len(y)/sr:.1f} seconds @ {sr}Hz")
-
-        # ============================================================
-        # STEP 2: DUAL AUDIO PIPELINE (Noise Reduction)
-        # ============================================================
-        print("   🔊 Creating dual audio pipeline...")
-
-        # Extract noise profile from first 0.5 seconds
-        noise = y[:int(0.5 * sr)]
-
-        # VERSION 1: CLEAN (80% noise reduction) - for VAD
-        print("      🔇 Reducing noise (80% removal for clarity)...")
-        clean = nr.reduce_noise(y=y, sr=sr, y_noise=noise, prop_decrease=0.8)
-        clean /= max(np.max(np.abs(clean)), 1e-6)  # Normalize
-
-        # VERSION 2: RAW (60% noise reduction) - preserves voice qualities
-        print("      🔊 Gentle noise reduction (60% removal to preserve features)...")
-        raw = nr.reduce_noise(y=y, sr=sr, y_noise=noise, prop_decrease=0.6)
-        raw /= max(np.max(np.abs(raw)), 1e-6)  # Normalize
-
-        print("   ✅ Dual pipeline complete")
-
-        # ============================================================
-        # STEP 3: VAD + COMPRESSION (on clean audio)
-        # ============================================================
-        print("   ✂️  Applying Voice Activity Detection (VAD)...")
-
-        segments = librosa.effects.split(clean, top_db=30)
-        speech = np.concatenate([clean[s:e] for s, e in segments]) if segments.any() else clean
-
-        # Compress dynamic range for clarity
-        audio_segment = AudioSegment(
-            np.int16(speech * 32767).tobytes(),
-            frame_rate=sr,
-            sample_width=2,
-            channels=1
-        )
-        audio_segment = compress_dynamic_range(audio_segment)
-        print(f"   ✅ VAD complete: extracted {len(segments)} speech segments")
-
-        # ============================================================
-        # STEP 4: EXTRACT FEATURES (from RAW audio)
-        # ============================================================
-        print("   🎵 Extracting acoustic features...")
-
-        # Load raw audio for Parselmouth (pitch analysis)
-        snd = parselmouth.Sound(audio_path)
-        pitch = snd.to_pitch()
-        f0 = pitch.selected_array["frequency"]
-        f0 = f0[(f0 > 75) & (f0 < 500)]  # Keep realistic pitch range
-
-        if len(f0) == 0:
-            print("   ⚠️  No pitch detected - using defaults")
-            baseline_pitch_mean = 0.0
-            baseline_pitch_std = 0.0
-            baseline_pitch_median = 0.0
-            pitch_range = 0.0
-        else:
-            baseline_pitch_mean = float(np.mean(f0))
-            baseline_pitch_std = float(np.std(f0))
-            baseline_pitch_median = float(np.median(f0))
-            pitch_range = float(np.max(f0) - np.min(f0))
-
-        print(f"   ✅ Pitch: mean={baseline_pitch_mean:.1f}Hz, std={baseline_pitch_std:.1f}Hz, range={pitch_range:.1f}Hz")
-
-        # ENERGY (from raw audio)
-        energy = float(np.mean(librosa.feature.rms(y=raw)[0]))
-        print(f"   ✅ Energy: {energy:.4f}")
-
-        # ============================================================
-        # STEP 5: SPEECH RATE (WPM from Express transcript)
-        # ============================================================
-        print("   📊 Calculating speaking rate from Express transcript...")
-
-        duration = len(raw) / sr
-
-        if transcript_text and len(transcript_text.strip()) > 0:
-            # ✅ USE REAL TRANSCRIPT FROM EXPRESS
-            word_count = len(transcript_text.split())
-            wpm = (word_count / duration) * 60 if duration > 0 else 0.0
-            print(f"   ✅ Words: {word_count} | Duration: {duration:.1f}s | WPM: {wpm:.1f}")
-        else:
-            # Fallback only if no transcript
-            wpm = 150.0
-            print(f"   ⚠️  No transcript from Express. Using fallback: {wpm:.0f} WPM")
-
-        # ============================================================
-        # STEP 6: JITTER & SHIMMER
-        # ============================================================
-        print("   🔍 Computing voice stability metrics (jitter/shimmer)...")
-
+        feats = models['smile'].process_file(str(fpath))
+    except Exception as e:
+        logger.warning(f"Direct openSMILE processing failed ({e}). Converting to WAV...")
+        tmp_path = None
         try:
-            pp = parselmouth.call(snd, "To PointProcess (periodic, cc)", 75, 500)
-            jitter = float(parselmouth.call(pp, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3))
-            shimmer = float(parselmouth.call([snd, pp], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6))
-            print(f"   ✅ Jitter: {jitter:.6f} | Shimmer: {shimmer:.6f}")
-        except Exception as e:
-            print(f"   ⚠️  Jitter/shimmer failed (will use defaults): {e}")
-            jitter = 0.02
-            shimmer = 0.08
+            tmp_path = tempfile.mktemp(suffix=".wav")
+            audio = AudioSegment.from_file(str(fpath))
+            audio = audio.set_frame_rate(16000).set_channels(1)
+            audio.export(tmp_path, format="wav")
+            feats = models['smile'].process_file(tmp_path)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
-        # ============================================================
-        # STEP 7: PAUSE DETECTION
-        # ============================================================
-        print("   ⏸️  Detecting pauses in speech...")
-
-        pause_info = detect_pauses(raw, sr)
-        print(f"   ✅ Detected {pause_info['num_pauses']} pauses | Pause ratio: {pause_info['pause_ratio']:.2%}")
-
-        # ============================================================
-        # STEP 8: COMPILE ALL 23 FEATURES
-        # ============================================================
-        features = {
-            "baseline_pitch_mean": baseline_pitch_mean,
-            "baseline_pitch_std": baseline_pitch_std,
-            "baseline_pitch_median": baseline_pitch_median,
-            "analysis_pitch_mean": baseline_pitch_mean,  # Same as baseline
-            "pitch_range": pitch_range,
-            "energy": energy,
-            "wpm": wpm,
-            "pause_ratio": pause_info["pause_ratio"],
-            "num_pauses": float(pause_info["num_pauses"]),
-            "avg_pause_length": pause_info["avg_pause_length"],
-            "std_pause_length": pause_info["std_pause_length"],
-            "longest_pause": pause_info["longest_pause"],
-            "num_short_pauses": float(pause_info["num_short_pauses"]),
-            "num_medium_pauses": float(pause_info["num_medium_pauses"]),
-            "num_long_pauses": float(pause_info["num_long_pauses"]),
-            "jitter": jitter,
-            "shimmer": shimmer,
-            "Unnamed: 21": 0.0,
-            "Unnamed: 22": 0.0,
-            "Unnamed: 23": 0.0
-        }
-
-        print(f"   ✅ All 23 features extracted successfully")
-        return features
-
-    except Exception as e:
-        logger.error(f"Feature extraction failed: {e}")
-        raise
+    return pd.DataFrame([feats.iloc[0].to_dict()])
 
 
-def detect_pauses(y, sr):
+def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Detect silent segments in audio (speech pauses).
-
-    Returns dict with pause statistics.
+    Compute 7 engineered features on top of the raw eGeMAPS functionals.
+    Only 4 of these (vocal_instability, vocal_projection, voiced_flow,
+    loudness_dynamics_power) appear in the top-45 model features, but
+    all 7 are computed here to exactly match training.
     """
+    cols = df.columns.tolist()
 
+    if all(c in cols for c in ['jitterLocal_sma3nz_amean', 'shimmerLocaldB_sma3nz_amean']):
+        df['vocal_instability'] = (
+            df['jitterLocal_sma3nz_amean'] * df['shimmerLocaldB_sma3nz_amean']
+        )
+
+    if all(c in cols for c in ['loudness_sma3_amean', 'F0semitoneFrom27.5Hz_sma3nz_stddevNorm']):
+        df['vocal_projection'] = (
+            df['loudness_sma3_amean'] / (df['F0semitoneFrom27.5Hz_sma3nz_stddevNorm'] + 0.05)
+        )
+
+    if all(c in cols for c in ['F1frequency_sma3nz_amean', 'F2frequency_sma3nz_amean']):
+        df['resonance_ratio'] = (
+            df['F2frequency_sma3nz_amean'] / (df['F1frequency_sma3nz_amean'] + 1e-4)
+        )
+
+    if all(c in cols for c in ['HNRdBACF_sma3nz_amean', 'alphaRatioV_sma3nz_amean']):
+        df['voice_quality'] = df['HNRdBACF_sma3nz_amean'] - df['alphaRatioV_sma3nz_amean']
+
+    if all(c in cols for c in ['loudness_sma3_pctlrange0-2', 'loudnessPeaksPerSec']):
+        df['loudness_dynamics_power'] = (
+            df['loudness_sma3_pctlrange0-2'] * df['loudnessPeaksPerSec']
+        )
+
+    if all(c in cols for c in ['VoicedSegmentsPerSec', 'MeanVoicedSegmentLengthSec']):
+        df['voiced_flow'] = (
+            df['VoicedSegmentsPerSec'] * df['MeanVoicedSegmentLengthSec']
+        )
+
+    if all(c in cols for c in ['slopeV0-500_sma3nz_amean', 'slopeV500-1500_sma3nz_amean']):
+        df['brightness_contrast'] = (
+            df['slopeV500-1500_sma3nz_amean'] - df['slopeV0-500_sma3nz_amean']
+        )
+
+    return df
+
+
+def compute_wpm(audio_path: str, transcript_text: str | None) -> float:
+    """Compute words-per-minute from transcript and audio duration (display metric only)."""
     try:
-        # Energy-based voice activity detection
-        S = librosa.feature.melspectrogram(y=y, sr=sr)
-        S_db = librosa.power_to_db(S, ref=np.max)
+        audio = AudioSegment.from_file(audio_path)
+        duration_sec = len(audio) / 1000.0
+        if transcript_text and transcript_text.strip() and duration_sec > 0:
+            word_count = len(transcript_text.strip().split())
+            return round((word_count / duration_sec) * 60, 1)
+        return 0.0
+    except Exception:
+        return 0.0
 
-        # Energy per frame
-        energy = np.mean(S_db, axis=0)
 
-        # Threshold: anything below mean - 10dB is "silence"
-        threshold = np.mean(energy) - 10
-        silent = energy < threshold
+# ============================================================
+# SHAP EXPLANATION ENGINE
+# ============================================================
+def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
+    """
+    Compute per-prediction SHAP values using TreeExplainer and convert
+    the top 5 contributors into actionable coaching advice.
 
-        # Find pause segments
-        pauses = []
-        in_pause = False
-        pause_start = 0
+    Each contributor shows:
+      - which feature mattered most for THIS prediction
+      - whether it helped or hurt the score
+      - a concrete coaching tip the candidate can act on
+    """
+    try:
+        explainer = models['shap_explainer']
+        shap_values = explainer.shap_values(X)   # shape: (1, 45) for regression
+        # expected_value is ndarray([scalar]) for XGBRegressor — extract the float
+        ev = explainer.expected_value
+        base_value = float(ev[0]) if hasattr(ev, '__len__') else float(ev)
 
-        hop_length = 512  # Default librosa hop length
+        contributors = []
+        for i, feat_name in enumerate(models['top_features']):
+            sv = float(shap_values[0][i])
+            fval = float(X.iloc[0, i])
+            label = FEATURE_LABELS.get(feat_name, feat_name)
+            direction = "positive" if sv > 0 else "negative"
+            tip = FEATURE_TIPS.get(feat_name, {}).get(
+                direction, get_generic_tip(label, sv > 0)
+            )
+            contributors.append({
+                "feature": feat_name,
+                "label": label,
+                "value": round(fval, 4),
+                "shap_value": round(sv, 4),
+                "direction": "increased" if sv > 0 else "decreased",
+                "impact_magnitude": round(abs(sv), 4),
+                "explanation": tip,
+            })
 
-        for i, is_silent in enumerate(silent):
-            if is_silent and not in_pause:
-                pause_start = i
-                in_pause = True
-            elif not is_silent and in_pause:
-                pause_length = (i - pause_start) * hop_length / sr
-                if pause_length > 0.1:  # Ignore clicks < 0.1s
-                    pauses.append(pause_length)
-                in_pause = False
-
-        if len(pauses) == 0:
-            return {
-                "pause_ratio": 0.0,
-                "num_pauses": 0,
-                "avg_pause_length": 0.0,
-                "std_pause_length": 0.0,
-                "longest_pause": 0.0,
-                "num_short_pauses": 0,
-                "num_medium_pauses": 0,
-                "num_long_pauses": 0
-            }
-
-        pauses = np.array(pauses)
+        contributors.sort(key=lambda x: x["impact_magnitude"], reverse=True)
 
         return {
-            "pause_ratio": float(np.sum(pauses) / (len(y) / sr)),
-            "num_pauses": int(len(pauses)),
-            "avg_pause_length": float(np.mean(pauses)),
-            "std_pause_length": float(np.std(pauses)),
-            "longest_pause": float(np.max(pauses)),
-            "num_short_pauses": int(np.sum(pauses < 1.0)),
-            "num_medium_pauses": int(np.sum((pauses >= 1.0) & (pauses < 3.0))),
-            "num_long_pauses": int(np.sum(pauses >= 3.0))
+            "base_value": round(base_value, 4),
+            "predicted_value": round(predicted_score, 4),
+            "top_contributors": contributors[:5],
+            "all_shap_values": {
+                feat_name: round(float(shap_values[0][i]), 4)
+                for i, feat_name in enumerate(models['top_features'])
+            },
         }
 
     except Exception as e:
-        logger.error(f"Pause detection failed: {e}")
+        logger.warning(f"SHAP explanation failed: {e}")
         return {
-            "pause_ratio": 0.0,
-            "num_pauses": 0,
-            "avg_pause_length": 0.0,
-            "std_pause_length": 0.0,
-            "longest_pause": 0.0,
-            "num_short_pauses": 0,
-            "num_medium_pauses": 0,
-            "num_long_pauses": 0
+            "base_value": 0.0,
+            "predicted_value": predicted_score,
+            "top_contributors": [],
+            "all_shap_values": {},
         }
 
 
 # ============================================================
-# STEP 6: INFERENCE FUNCTION
+# PREDICTION PIPELINE
 # ============================================================
+def score_to_label(score: float) -> str:
+    """Map 0-1 regression output to a text label (used in Gemini prompts and report)."""
+    if score >= 0.75:
+        return "Highly Confident"
+    if score >= 0.50:
+        return "Confident"
+    if score >= 0.30:
+        return "Moderately Confident"
+    return "Needs Improvement"
 
-def predict_confidence(features_dict: dict) -> dict:
+
+def predict_confidence(audio_path: str, transcript_text: str | None = None) -> dict:
     """
-    Takes extracted features and runs XGBoost model.
-
-    Args:
-        features_dict: 23-feature dictionary
-
-    Returns:
-        Prediction results with confidence scores
+    Full pipeline:
+      1. Extract eGeMAPSv02 features via openSMILE
+      2. Add 7 engineered features
+      3. Select the model's top 45 features
+      4. XGBoost regression → 0-1 confidence score
+      5. SHAP explanation of what drove the score
+      6. WPM from transcript (display metric)
     """
+    logger.info(f"Starting voice analysis: {audio_path}")
 
-    try:
-        print(f"   🤖 Running inference...")
+    # 1 & 2 — feature extraction
+    features_df = extract_opensmile_features(audio_path)
+    features_df = add_engineered_features(features_df)
 
-        # 1. Create DataFrame with exact column order
-        feature_order = [
-            "baseline_pitch_mean", "baseline_pitch_std", "baseline_pitch_median",
-            "analysis_pitch_mean", "pitch_range", "energy", "wpm",
-            "pause_ratio", "num_pauses", "avg_pause_length", "std_pause_length",
-            "longest_pause", "num_short_pauses", "num_medium_pauses", "num_long_pauses",
-            "jitter", "shimmer", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23"
-        ]
+    # 3 — select top 45 in training order, fill any missing with 0
+    top_features = models['top_features']
+    X = pd.DataFrame(index=[0], columns=top_features, dtype=float)
+    for col in top_features:
+        X[col] = features_df[col].iloc[0] if col in features_df.columns else 0.0
 
-        # 2. Extract features in correct order
-        feature_values = [features_dict[col] for col in feature_order]
-        df = pd.DataFrame([feature_values], columns=feature_order)
+    # 4 — predict (no scaler needed, XGBoost is scale-invariant)
+    raw_score = float(models['final_model'].predict(X)[0])
+    confidence_score = float(np.clip(raw_score, 0.0, 1.0))
 
-        # 3. Scale features
-        X_scaled = models['scaler'].transform(df)
+    # 5 — SHAP explanations
+    shap_result = generate_shap_explanations(X, confidence_score)
 
-        # 4. Predict probabilities
-        probs = models['xgb_model'].predict_proba(X_scaled)
+    # 6 — WPM (display only)
+    wpm = compute_wpm(audio_path, transcript_text)
 
-        # 5. Get prediction
-        pred_idx = np.argmax(probs[0])
-        confidence = probs[0][pred_idx] * 100
-
-        # 6. Decode label
-        label = models['encoder'].inverse_transform([pred_idx])[0]
-
-        print(f"   ✅ Prediction: {label} ({confidence:.1f}% confidence)")
-
-        # 7. Return results
-        result = {
-            "predicted_confidence_label": label,
-            "confidence_probability": float(confidence),
-            "all_probabilities": {
-                str(models['encoder'].classes_[i]): float(probs[0][i] * 100)
-                for i in range(len(models['encoder'].classes_))
-            }
-        }
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Inference failed: {e}")
-        raise
+    return {
+        "confidence_score": confidence_score,
+        "confidence_label": score_to_label(confidence_score),
+        "wpm": wpm,
+        "shap": shap_result,
+        "raw_features": features_df.iloc[0].to_dict(),
+    }
 
 
 # ============================================================
-# STEP 7: BACKGROUND TASK
+# BACKGROUND TASK
 # ============================================================
-
 async def process_voice_analysis(
     turn_id: int,
     audio_path: str,
     interview_id: str,
     start_time: datetime,
-    transcript_text: str = None  # 🆕 Pass transcript from Express backend
+    transcript_text: str | None = None,
 ):
     """
-    Background task: Extract features + predict.
-
-    This runs asynchronously without blocking the user.
-    Takes 1.5-4.5 seconds but user doesn't wait.
-
-    Args:
-        turn_id: Interview turn ID
-        audio_path: Path to audio file
-        interview_id: Interview session ID
-        start_time: When processing started (for timing)
-        transcript_text: (OPTIONAL) Pre-transcribed text from Express backend
-                        RECOMMENDED: Pass this to calculate accurate WPM
+    Runs asynchronously after Express queues it.
+    Builds the full result payload that matches the Prisma VoiceAnalysis
+    schema and saves it to Redis for Express to pick up.
     """
-
     try:
-        print(f"\n" + "="*60)
-        print(f"🎤 PROCESSING VOICE ANALYSIS")
-        print(f"   Turn ID: {turn_id}")
-        print(f"   Interview ID: {interview_id}")
-        print(f"   Audio: {audio_path}")
-        print("="*60)
+        print(f"\n{'='*60}")
+        print(f"VOICE ANALYSIS — Turn {turn_id} | Session {interview_id}")
+        print(f"{'='*60}")
 
-        # Check if audio file exists
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        # 1. EXTRACT FEATURES (slow - 1.5-4.5s)
-        features = extract_voice_features(audio_path, transcript_text=transcript_text)
+        prediction = predict_confidence(audio_path, transcript_text)
+        elapsed_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-        # 2. PREDICT (fast - 50ms)
-        prediction = predict_confidence(features)
+        raw = prediction["raw_features"]
+        shap = prediction["shap"]
 
-        # 3. PREPARE RESULT
-        elapsed_time = (datetime.now() - start_time).total_seconds() * 1000
+        # Derive backward-compatible schema fields from eGeMAPS features
+        # voiced_flow ≈ fraction of time voiced → pause_ratio ≈ 1 - voiced_flow
+        vsps = raw.get("VoicedSegmentsPerSec", 1.0) or 1.0
+        mvsl = raw.get("MeanVoicedSegmentLengthSec", 0.3) or 0.3
+        voiced_fraction = min(1.0, float(vsps) * float(mvsl))
+        pause_ratio_approx = max(0.0, round(1.0 - voiced_fraction, 4))
 
         result = {
             "interviewTurnId": turn_id,
-            "confidenceLevel": prediction["confidence_probability"] / 100,  # 0-1 range
-            "confidenceLabelText": prediction["predicted_confidence_label"],
-            "speakingQuality": max(prediction["all_probabilities"].values()) / 100,
-            "vocalStability": 1.0 - features["jitter"],  # Inverse: higher stability = lower jitter
-            "speakingFluency": 1.0 - features["pause_ratio"],  # Inverse: higher fluency = fewer pauses
-            "pitchMean": features["baseline_pitch_mean"],
-            "pitchStd": features["baseline_pitch_std"],
-            "energyLevel": features["energy"],
-            "wordsPerMinute": features["wpm"],
-            "pauseRatio": features["pause_ratio"],
-            "jitter": features["jitter"],
-            "shimmer": features["shimmer"],
-            "modelVersion": "v1.0",
-            "allProbabilities": prediction["all_probabilities"],
-            "rawFeatures": features,
+
+            # Core model output
+            "confidenceLevel": round(prediction["confidence_score"], 4),       # 0-1
+            "confidenceLabelText": prediction["confidence_label"],              # for Gemini/report
+
+            # Derived quality metrics (backward-compatible with Prisma schema)
+            "speakingQuality": round(prediction["confidence_score"], 4),
+            "vocalStability": round(
+                max(0.0, 1.0 - float(raw.get("jitterLocal_sma3nz_amean", 0) or 0)), 4
+            ),
+            "speakingFluency": round(voiced_fraction, 4),
+            "pitchMean": round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_amean", 0) or 0), 4),
+            "pitchStd": round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_stddevNorm", 0) or 0), 4),
+            "energyLevel": round(float(raw.get("equivalentSoundLevel_dBp", 0) or 0), 4),
+            "wordsPerMinute": prediction["wpm"],
+            "pauseRatio": pause_ratio_approx,
+            "jitter": round(float(raw.get("jitterLocal_sma3nz_amean", 0) or 0), 6),
+            "shimmer": round(float(raw.get("shimmerLocaldB_sma3nz_amean", 0) or 0), 6),
+
+            "modelVersion": "v2.0-egemaps-shap",
+
+            # SHAP values stored in allProbabilities for DB (Json field)
+            "allProbabilities": shap["all_shap_values"],
+
+            # rawFeatures includes eGeMAPS values + SHAP explanations
+            "rawFeatures": {
+                **{k: (round(float(v), 4) if isinstance(v, (int, float)) else v)
+                   for k, v in raw.items()},
+                "shapExplanations": shap["top_contributors"],
+                "shapBaseValue": shap["base_value"],
+                # featureExplanations for existing frontend "Why this prediction" section
+                "featureExplanations": [
+                    c["explanation"]
+                    for c in shap["top_contributors"]
+                    if c.get("explanation")
+                ],
+            },
+
             "status": "completed",
-            "processingTimeMs": int(elapsed_time),
-            "processedAt": datetime.now().isoformat()
+            "processingTimeMs": elapsed_ms,
+            "processedAt": datetime.now().isoformat(),
         }
 
-        print(f"\n✅ VOICE ANALYSIS COMPLETED")
-        print(f"   Prediction: {result['confidenceLabelText']}")
-        print(f"   Confidence: {result['confidenceLevel']*100:.1f}%")
-        print(f"   Processing time: {result['processingTimeMs']}ms")
-        print("="*60 + "\n")
+        print(f"Confidence: {result['confidenceLevel']*100:.1f}% ({result['confidenceLabelText']})")
+        print(f"WPM: {result['wordsPerMinute']}")
+        print(f"Top SHAP driver: {shap['top_contributors'][0]['label'] if shap['top_contributors'] else 'N/A'}")
+        print(f"Processing time: {elapsed_ms}ms")
+        print(f"{'='*60}\n")
 
-        # 4. SAVE TO REDIS (for Express to pick up)
-        try:
-            redis_client.set(
-                f"voice_analysis:{interview_id}:{turn_id}",
-                json.dumps(result),
-                ex=86400  # Expire after 24 hours
-            )
-            print(f"✅ Results saved to Redis")
-        except Exception as e:
-            logger.warning(f"Redis save failed (non-critical): {e}")
+        if redis_client:
+            try:
+                redis_client.set(
+                    f"voice_analysis:{interview_id}:{turn_id}",
+                    json.dumps(result),
+                    ex=86400,
+                )
+                logger.info(f"Saved to Redis: voice_analysis:{interview_id}:{turn_id}")
+            except Exception as e:
+                logger.warning(f"Redis save failed (non-critical): {e}")
 
         return result
 
     except Exception as e:
-        print(f"\n❌ VOICE ANALYSIS FAILED")
-        print(f"   Error: {e}")
-        print("="*60 + "\n")
+        print(f"\nVOICE ANALYSIS FAILED — Turn {turn_id}: {e}\n")
+        logger.error(f"process_voice_analysis error: {e}")
 
-        # Save error state
         error_result = {
             "interviewTurnId": turn_id,
             "status": "failed",
             "errorMessage": str(e),
-            "processedAt": datetime.now().isoformat()
+            "processedAt": datetime.now().isoformat(),
         }
 
-        try:
-            redis_client.set(
-                f"voice_analysis:{interview_id}:{turn_id}",
-                json.dumps(error_result),
-                ex=86400
-            )
-        except:
-            pass
+        if redis_client:
+            try:
+                redis_client.set(
+                    f"voice_analysis:{interview_id}:{turn_id}",
+                    json.dumps(error_result),
+                    ex=86400,
+                )
+            except Exception:
+                pass
 
 
 # ============================================================
-# STEP 8: API ENDPOINTS
+# API ENDPOINTS
 # ============================================================
 
 @app.get("/health")
 def health():
-    """
-    Health check endpoint.
-
-    Use this to verify the service is running:
-    curl http://localhost:8001/health
-    """
     return {
         "status": "ok",
-        "service": "Hirely Voice Analysis",
-        "models_loaded": all(v is not None for v in models.values()),
-        "timestamp": datetime.now().isoformat()
+        "service": "Hirely Voice Analysis v2.0",
+        "models_loaded": bool(models.get("final_model")),
+        "shap_ready": bool(models.get("shap_explainer")),
+        "timestamp": datetime.now().isoformat(),
     }
 
-
-# ============================================================
-# STEP 8: API ENDPOINTS (Corrected)
-# ============================================================
 
 class AnalysisRequest(BaseModel):
     turn_id: int
     interview_id: str
     audio_path: str
-    transcript: str = None  # Optional field
+    transcript: str | None = None
+
 
 @app.post("/analyze-voice")
-async def analyze_voice(
-    request_data: AnalysisRequest,          # <--- FastAPI now looks for JSON body
-    background_tasks: BackgroundTasks
-):
+async def analyze_voice(request_data: AnalysisRequest, background_tasks: BackgroundTasks):
     """
-    Receive audio and transcript for analysis via JSON body.
+    Accepts JSON body from Express backend.
+    Queues voice analysis as a background task and returns immediately.
+    Express polls /result/{interview_id}/{turn_id} for the result.
     """
     try:
-        # Access data using request_data.field_name
-        print(f"📥 Received analysis request for Turn {request_data.turn_id}")
-
-        # Queue background task and PASS the transcript
+        logger.info(f"Queued voice analysis — Turn {request_data.turn_id}")
         background_tasks.add_task(
             process_voice_analysis,
             request_data.turn_id,
             request_data.audio_path,
             request_data.interview_id,
             datetime.now(),
-            request_data.transcript
+            request_data.transcript,
         )
-
         return {
             "status": "queued",
             "turn_id": request_data.turn_id,
-            "message": "Voice analysis queued successfully.",
-            "timestamp": datetime.now().isoformat()
+            "message": "Voice analysis queued.",
+            "timestamp": datetime.now().isoformat(),
         }
-
     except Exception as e:
         logger.error(f"Queue failed: {e}")
         return {"status": "error", "error": str(e)}, 500
 
+
 @app.get("/result/{interview_id}/{turn_id}")
 def get_result(interview_id: str, turn_id: int):
-    """
-    Retrieve voice analysis result.
-
-    Use this from Express to get results after processing.
-
-    Example:
-    GET http://localhost:8001/result/session-123/1
-    """
-
+    """Retrieve voice analysis result from Redis. Returns {status: pending} if not ready."""
     try:
+        if not redis_client:
+            return {"status": "error", "error": "Redis not connected"}
         result = redis_client.get(f"voice_analysis:{interview_id}:{turn_id}")
-
         if result is None:
             return {"status": "pending"}
-
-        return json.loads(result)
-
+        return json.loads(result) if isinstance(result, str) else result
     except Exception as e:
         logger.error(f"Get result failed: {e}")
         return {"status": "error", "error": str(e)}, 500
 
 
 # ============================================================
-# STEP 9: RUN COMMAND (for development)
+# DEVELOPMENT ENTRY POINT
 # ============================================================
-
 if __name__ == "__main__":
     import uvicorn
-
     print("\n" + "="*60)
-    print("🚀 Starting FastAPI server...")
-    print("Visit: http://localhost:8001/docs")
+    print("Starting Hirely Voice Analysis Service v2.0")
+    print("Docs: http://localhost:8001/docs")
     print("="*60 + "\n")
-
-    # Change "main:app" (string) to app (object) to fix the loop error
-    uvicorn.run(
-        app, 
-        host="0.0.0.0", 
-        port=8001
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8001)

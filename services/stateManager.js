@@ -1,13 +1,11 @@
-import { createClient } from "redis";
+import { Redis } from "@upstash/redis";
 import dotenv from "dotenv";
 dotenv.config();
 
-const client = createClient({
-  url: process.env.REDIS_URL || "redis://localhost:6379",
+const client = new Redis({
+  url: process.env.REDIS_URL,
+  token: process.env.REDIS_TOKEN,
 });
-
-client.on("error", (err) => console.error("Redis Client Error", err));
-await client.connect();
 
 export const stateManager = {
   // 1. Start Interview
@@ -23,7 +21,7 @@ export const stateManager = {
       createdAt: new Date().toISOString(),
     };
 
-    await client.set(`interview:${sessionId}`, JSON.stringify(sessionData));
+    await client.set(`interview:${sessionId}`, sessionData);
     await client.expire(`interview:${sessionId}`, 86400);
   },
 
@@ -33,28 +31,24 @@ export const stateManager = {
 
   async getSession(sessionId) {
     const data = await client.get(`interview:${sessionId}`);
-    return data ? JSON.parse(data) : null;
+    return data || null;
   },
 
   // 2. Update Current Question (Call this when generating Next Question)
   async updateCurrentQuestion(sessionId, nextQuestionObj) {
-    const sessionJson = await client.get(`interview:${sessionId}`);
-    if (!sessionJson) return;
-    const session = JSON.parse(sessionJson);
+    const session = await client.get(`interview:${sessionId}`);
+    if (!session) return;
 
-    session.currentQuestion = nextQuestionObj; // Store full object {question, topic, difficulty}
+    session.currentQuestion = nextQuestionObj;
 
-    await client.set(`interview:${sessionId}`, JSON.stringify(session));
+    await client.set(`interview:${sessionId}`, session);
   },
 
   // 3. Save Turn
   async saveTurn(sessionId, question, answer, evaluation) {
-    const sessionJson = await client.get(`interview:${sessionId}`);
-    if (!sessionJson) return null;
-    const session = JSON.parse(sessionJson);
+    const session = await client.get(`interview:${sessionId}`);
+    if (!session) return null;
 
-    // ✅ GET METADATA from the stored currentQuestion
-    // Fallback to "Unknown" if something weird happens
     const topic = session.currentQuestion?.topic || "General";
     const difficulty = session.currentQuestion?.difficulty || "Medium";
 
@@ -64,17 +58,16 @@ export const stateManager = {
       score: evaluation.score,
       betterAnswer: evaluation.betterAnswer,
       feedback: evaluation.feedback,
-      topic, // <--- Save Topic
-      difficulty, // <--- Save Difficulty
+      topic,
+      difficulty,
       timestamp: new Date().toISOString(),
     });
 
-    // Remove from queue if it exists
     if (session.questionQueue.length > 0) {
       session.questionQueue.shift();
     }
 
-    await client.set(`interview:${sessionId}`, JSON.stringify(session));
+    await client.set(`interview:${sessionId}`, session);
     return session;
   },
 };

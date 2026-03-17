@@ -8,7 +8,7 @@ dotenv.config();
 
 // Updated to Gemini 3 Flash for peak performance
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-3-flash",
+  model: "gemini-2.5-flash",
   apiKey: process.env.GOOGLE_API_KEY,
 });
 
@@ -33,6 +33,91 @@ const FinalReportSchema = z.object({
     .string()
     .describe("Advice for both technical and communication growth"),
 });
+
+const VoiceInsightsSchema = z.object({
+  insights: z
+    .array(z.string())
+    .describe(
+      "4-6 specific, actionable, non-repetitive observations about the candidate's communication style across the full interview",
+    ),
+});
+
+/**
+ * Use AI to synthesize raw voice metrics from all turns into coherent,
+ * non-repetitive feedback. One LLM call covers the whole interview.
+ */
+async function generateAIVoiceInsights(voiceAnalyses) {
+  if (!voiceAnalyses || voiceAnalyses.length === 0) return [];
+
+  // Build per-turn summaries. v2.0+ sessions include SHAP-identified drivers;
+  // older sessions fall back to raw metrics. Both paths produce useful Gemini input.
+  const turnSummaries = voiceAnalyses.map((v, i) => {
+    const shapExplanations = v.rawFeatures?.shapExplanations || [];
+    const hasShap = shapExplanations.length > 0;
+
+    const base = {
+      turn: i + 1,
+      confidenceScore: Math.round((v.confidenceLevel || 0) * 100),
+      confidenceLabel: v.confidenceLabelText || "Unknown",
+      wpm: Math.round(v.wordsPerMinute || 0),
+    };
+
+    if (hasShap) {
+      // v2.0: include top SHAP drivers so Gemini knows what the model actually detected
+      return {
+        ...base,
+        topFactors: shapExplanations.slice(0, 3).map((e) => ({
+          feature: e.label,
+          impact: e.direction,        // "increased" or "decreased"
+          explanation: e.explanation, // already-written coaching tip
+        })),
+      };
+    }
+
+    // Fallback for pre-v2.0 sessions
+    return {
+      ...base,
+      pauseRatioPct: Math.round((v.pauseRatio || 0) * 100),
+      jitter: parseFloat((v.jitter || 0).toFixed(3)),
+      shimmer: parseFloat((v.shimmer || 0).toFixed(3)),
+      energy: parseFloat((v.energyLevel || 0).toFixed(3)),
+    };
+  });
+
+  const hasShapData = turnSummaries.some((t) => t.topFactors);
+
+  const prompt = `You are an expert communication coach reviewing ML-powered voice analysis from a job interview.
+
+ANALYSIS PER QUESTION:
+${JSON.stringify(turnSummaries, null, 2)}
+
+${
+  hasShapData
+    ? `Each turn includes topFactors — the acoustic features the model identified as most impactful on the confidence score, whether each factor increased or decreased the score, and a coaching tip.`
+    : `REFERENCE RANGES: WPM 100-160 ideal. Jitter <0.02 stable. Shimmer <0.08 stable. Pause ratio <20% fluent. Energy >0.05 good projection.`
+}
+
+TASK: Write 4-6 concise, actionable observations synthesizing the candidate's communication patterns across the WHOLE interview.
+
+Rules:
+- ${hasShapData ? "Use the SHAP-identified factors as your primary evidence — these are what the model actually measured" : "Use the metrics and reference ranges as your evidence"}
+- If the same factor appears across multiple turns, treat it as a consistent pattern (stronger evidence)
+- If a factor appears positive in some turns and negative in others, note the inconsistency
+- Lead with strengths, then areas to improve
+- Be specific and actionable (e.g. "try pausing between key points" not "work on pacing")
+- Write in second person ("You maintained steady projection throughout")
+- Keep each observation to one sentence
+- Do not refer to specific turn numbers`;
+
+  try {
+    const structuredLlm = llm.withStructuredOutput(VoiceInsightsSchema);
+    const result = await structuredLlm.invoke(prompt);
+    return result.insights;
+  } catch (e) {
+    console.warn("⚠️ AI voice insights generation failed:", e.message);
+    return [];
+  }
+}
 
 /**
  * Adaptive Questioning Logic
@@ -78,7 +163,10 @@ export async function generateFinalReport(
   try {
     console.log(`⏳ Extracting vocal insights for: ${sessionId}`);
     // This now returns objects containing .insights and .metrics thanks to your helper update
-    voiceAnalyses = await getVoiceAnalysesForInterview(sessionId);
+    voiceAnalyses = await getVoiceAnalysesForInterview(
+      sessionId,
+      history.length,
+    );
   } catch (e) {
     console.warn("⚠️ Voice analysis retrieval failed:", e.message);
   }
@@ -90,10 +178,9 @@ export async function generateFinalReport(
         voiceAnalyses.length
       : 50;
 
-  // Collect all unique bullet-point insights across the whole interview
-  const allVocalInsights = [
-    ...new Set(voiceAnalyses.flatMap((v) => v.insights)),
-  ];
+  // AI-generated insights: one LLM call synthesizes all turns into coherent, non-repetitive feedback
+  console.log(`🤖 Generating AI voice insights for ${voiceAnalyses.length} turns...`);
+  const allVocalInsights = await generateAIVoiceInsights(voiceAnalyses);
 
   const historyText = history
     .map((h, i) => `Q${i + 1}: ${h.question}\nTechnical Score: ${h.score}/100`)

@@ -1,5 +1,5 @@
 generator client {
-  provider        = "prisma-client"
+  provider        = "prisma-client-js"
   output          = "../generated/prisma"
   previewFeatures = ["postgresqlExtensions"]
   engineType      = "library"
@@ -38,10 +38,12 @@ model InterviewTurn {
   improvedAnswer String? // "Better Answer" (Point #2)
   topic          String?  
   difficulty     String?
-  softSkillScore Int?  
-    // 🆕 NEW: Voice analysis relationship
-  voiceAnalysis   VoiceAnalysis?  // One-to-one relationship  // (Point #2 - Placeholder)
-  
+  softSkillScore Int?
+  audioUrl       String?          // Supabase Storage public URL for the recorded answer
+
+  // 🆕 NEW: Voice analysis relationship
+  voiceAnalysis   VoiceAnalysis?  // One-to-one relationship
+
   createdAt   DateTime @default(now())
 }
 

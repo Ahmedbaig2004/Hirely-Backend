@@ -1,6 +1,7 @@
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapterimport similarity from "compute-cosine-similarity"; // Uses the library
+import { prisma } from "../config/db.js";
+import similarity from "compute-cosine-similarity";
 import dotenv from "dotenv";
 dotenv.config();
 
