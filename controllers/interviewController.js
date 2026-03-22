@@ -10,6 +10,7 @@ import {
   generateFinalReport,
 } from "../services/interviewer.js";
 import { evaluateAnswer } from "../services/retrieval.js";
+import { analyzeDelivery } from "../services/deliveryAnalyzer.js";
 import { prisma } from "../config/db.js";
 import { generateAudio } from "../services/tts.js";
 import { Redis } from "@upstash/redis";
@@ -24,7 +25,7 @@ const redisClient = new Redis({
   token: process.env.REDIS_TOKEN,
 });
 
-const MAX_QUESTIONS = 1;
+const MAX_QUESTIONS = 2;
 
 /**
  * Initialize interview session
@@ -107,17 +108,26 @@ export const submitAnswer = async (req, res) => {
     const { sessionId, question } = req.body;
     let answerText = "";
 
-    // 1. Transcription Logic
+    // 1. Transcription Logic + determine answer mode
+    let answerMode = "chat";
     if (req.file) {
       answerText = await transcribeAudio(req.file.buffer);
+      answerMode = "audio";
     } else if (req.body.answer) {
       answerText = req.body.answer;
     } else {
-      return res.status(400).json({ error: "No audio provided." });
+      return res.status(400).json({ error: "No answer provided." });
     }
 
-    // 2. Textual Evaluation (RAG + Gemini)
-    const evaluation = await evaluateAnswer(question, answerText);
+    // 2. Fetch session for job description context
+    const session = await stateManager.getSession(sessionId);
+    const jobDescription = session?.jobDescription || "";
+
+    // 3. Textual Evaluation + Delivery Analysis (in parallel)
+    const [evaluation, deliveryAnalysis] = await Promise.all([
+      evaluateAnswer(question, answerText, jobDescription),
+      analyzeDelivery(answerText, question),
+    ]);
 
     // 3. Save Turn to State (Redis)
     const updatedSession = await stateManager.saveTurn(
@@ -125,6 +135,8 @@ export const submitAnswer = async (req, res) => {
       question,
       answerText,
       evaluation,
+      answerMode,
+      deliveryAnalysis,
     );
 
     // 4. TRIGGER VOICE ANALYSIS (Background Task)
@@ -166,6 +178,7 @@ export const submitAnswer = async (req, res) => {
       );
       return res.json({
         evaluation,
+        deliveryAnalysis,
         isFinished: true,
         transcript: answerText,
       });
@@ -191,6 +204,7 @@ export const submitAnswer = async (req, res) => {
 
     return res.json({
       evaluation,
+      deliveryAnalysis,
       isFinished: false,
       nextQuestion: nextQ,
       transcript: answerText,
@@ -208,22 +222,41 @@ export const submitAnswer = async (req, res) => {
 export const getVoiceProgress = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const total = MAX_QUESTIONS;
+
+    // Get session to count only audio turns
+    const session = await stateManager.getSession(sessionId);
+    const history = session?.history || [];
+    const audioTurnIndices = [];
+    history.forEach((turn, idx) => {
+      // Include audio turns and legacy turns (no answerMode field)
+      if (turn.answerMode === "audio" || !turn.answerMode) {
+        audioTurnIndices.push(idx + 1);
+      }
+    });
+
+    // If no audio turns, everything is done
+    const total = audioTurnIndices.length;
+    if (total === 0) {
+      return res.json({ completed: 0, total: 0, allDone: true, statuses: [] });
+    }
+
     let completed = 0;
     const statuses = [];
 
-    for (let i = 1; i <= total; i++) {
-      const data = await redisClient.get(`voice_analysis:${sessionId}:${i}`);
+    for (const turnIdx of audioTurnIndices) {
+      const data = await redisClient.get(
+        `voice_analysis:${sessionId}:${turnIdx}`,
+      );
       if (data) {
         const parsed = typeof data === "string" ? JSON.parse(data) : data;
         if (parsed.status === "completed" || parsed.status === "failed") {
           completed++;
-          statuses.push({ turn: i, status: parsed.status });
+          statuses.push({ turn: turnIdx, status: parsed.status });
         } else {
-          statuses.push({ turn: i, status: "processing" });
+          statuses.push({ turn: turnIdx, status: "processing" });
         }
       } else {
-        statuses.push({ turn: i, status: "pending" });
+        statuses.push({ turn: turnIdx, status: "pending" });
       }
     }
 
@@ -244,30 +277,38 @@ export const finalizeInterview = async (req, res) => {
       return res.status(400).json({ error: "sessionId is required" });
     }
 
-    // 1. Wait for all voice analyses to complete (poll Redis with retries)
-    const MAX_RETRIES = 20;
-    const RETRY_DELAY_MS = 1500;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      let done = 0;
-      for (let i = 1; i <= MAX_QUESTIONS; i++) {
-        const data = await redisClient.get(`voice_analysis:${sessionId}:${i}`);
-        if (data) {
-          const parsed = typeof data === "string" ? JSON.parse(data) : data;
-          if (parsed.status === "completed" || parsed.status === "failed")
-            done++;
-        }
-      }
-      if (done >= MAX_QUESTIONS) break;
-      console.log(
-        `⏳ Finalize: Voice analysis ${done}/${MAX_QUESTIONS} complete, waiting...`,
-      );
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-    }
-
-    // 2. Read session state from Redis
+    // 1. Read session state from Redis
     const session = await stateManager.getSession(sessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found or expired" });
+    }
+
+    // 2. Wait for voice analyses to complete (only for audio turns)
+    const audioTurnIndices = session.history
+      .map((turn, idx) => (turn.answerMode === "audio" ? idx + 1 : null))
+      .filter((idx) => idx !== null);
+
+    if (audioTurnIndices.length > 0) {
+      const MAX_RETRIES = 20;
+      const RETRY_DELAY_MS = 1500;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        let done = 0;
+        for (const turnIdx of audioTurnIndices) {
+          const data = await redisClient.get(
+            `voice_analysis:${sessionId}:${turnIdx}`,
+          );
+          if (data) {
+            const parsed = typeof data === "string" ? JSON.parse(data) : data;
+            if (parsed.status === "completed" || parsed.status === "failed")
+              done++;
+          }
+        }
+        if (done >= audioTurnIndices.length) break;
+        console.log(
+          `⏳ Finalize: Voice analysis ${done}/${audioTurnIndices.length} complete, waiting...`,
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
     }
 
     // 3. Enrich history with voice data from Redis
@@ -352,7 +393,15 @@ export const finalizeInterview = async (req, res) => {
             improvedAnswer: turn.betterAnswer,
             topic: turn.topic || "General",
             difficulty: turn.difficulty || "Medium",
+            answerMode: turn.answerMode || null,
             audioUrl: audioUrls[idx + 1] || null,
+            deliveryScore: turn.deliveryAnalysis?.deliveryScore ?? null,
+            fillerCount: turn.deliveryAnalysis?.fillerCount ?? null,
+            hedgingCount: turn.deliveryAnalysis?.hedgingCount ?? null,
+            sentenceRestarts: turn.deliveryAnalysis?.sentenceRestarts ?? null,
+            relevanceScore: turn.deliveryAnalysis?.relevanceScore ?? null,
+            specificityScore: turn.deliveryAnalysis?.specificityScore ?? null,
+            deliveryFeedback: turn.deliveryAnalysis ?? null,
             voiceAnalysis: turn.voiceAnalysis
               ? {
                   create: {

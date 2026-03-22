@@ -158,6 +158,16 @@ export async function generateFinalReport(
       ? history.reduce((sum, turn) => sum + turn.score, 0) / history.length
       : 0;
 
+  // 1b. Calculate Delivery Score (text modality)
+  const turnsWithDelivery = history.filter((t) => t.deliveryAnalysis);
+  const deliveryScore =
+    turnsWithDelivery.length > 0
+      ? turnsWithDelivery.reduce(
+          (sum, t) => sum + t.deliveryAnalysis.deliveryScore,
+          0,
+        ) / turnsWithDelivery.length
+      : null;
+
   // 2. Fetch interpreted Voice Data
   let voiceAnalyses = [];
   try {
@@ -182,13 +192,21 @@ export async function generateFinalReport(
   console.log(`🤖 Generating AI voice insights for ${voiceAnalyses.length} turns...`);
   const allVocalInsights = await generateAIVoiceInsights(voiceAnalyses);
 
+  // Delivery insights summary for the prompt
+  const deliveryInsights = turnsWithDelivery.length > 0
+    ? turnsWithDelivery.map((t, i) => {
+        const d = t.deliveryAnalysis;
+        return `Q${i + 1}: Delivery ${d.deliveryScore}/100, Fillers: ${d.fillerCount}, Hedging: ${d.hedgingCount}, Relevance: ${d.relevanceScore}/100, Specificity: ${d.specificityScore}/100. Top improvement: ${d.topImprovement}`;
+      }).join("\n")
+    : "No delivery analysis available.";
+
   const historyText = history
     .map((h, i) => `Q${i + 1}: ${h.question}\nTechnical Score: ${h.score}/100`)
     .join("\n\n");
 
   // 4. The "Expert Recruiter" Prompt
   const prompt = `
-    You are an expert Technical Hiring Manager. 
+    You are an expert Technical Hiring Manager.
 
     TECHNICAL DATA:
     - Score: ${technicalScore.toFixed(1)}/100
@@ -196,28 +214,59 @@ export async function generateFinalReport(
     - Resume Gaps: ${JSON.stringify(gapAnalysis)}
 
     COMMUNICATION DATA:
-    - Confidence Score: ${voiceScore.toFixed(1)}/100
-    - Observations: ${allVocalInsights.length > 0 ? allVocalInsights.join("; ") : "Stable and confident delivery."}
+    - Vocal Confidence Score: ${voiceScore.toFixed(1)}/100
+    - Vocal Observations: ${allVocalInsights.length > 0 ? allVocalInsights.join("; ") : "Stable and confident delivery."}
+
+    DELIVERY ANALYSIS (transcript quality):
+    - Overall Delivery Score: ${deliveryScore !== null ? deliveryScore.toFixed(1) + "/100" : "N/A"}
+    - Per-question breakdown:
+    ${deliveryInsights}
 
     TASK:
-    Evaluate the overall candidate. 
-    Look for "Confidence Mismatches": If the technical score is high but vocal insights mention 
-    "vocal tremors" or "frequent hesitations," note that they may know the theory but lack 
+    Evaluate the overall candidate considering technical knowledge, vocal delivery, AND answer quality/structure.
+    Look for "Confidence Mismatches": If the technical score is high but vocal insights mention
+    "vocal tremors" or "frequent hesitations," note that they may know the theory but lack
     confidence in explaining it under pressure.
+    Also note delivery patterns: excessive filler words, hedging language, or lack of specificity.
   `;
 
   const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
   const result = await structuredLlm.invoke(prompt);
 
   // 5. Final Combined Payload for the Database & UI
+  // Content quality blends technical accuracy + delivery quality
+  const contentQuality = deliveryScore !== null
+    ? (technicalScore * 0.6 + deliveryScore * 0.4)
+    : technicalScore;
+
+  // Fusion weights: content 60%, vocal 40% (interim — no video yet)
+  // When video is added: content 41%, video 32%, vocal 27%
+  const combined = contentQuality * 0.6 + voiceScore * 0.4;
+
+  // Delivery summary for frontend
+  const deliverySummary = turnsWithDelivery.length > 0
+    ? {
+        avgDeliveryScore: parseFloat(deliveryScore.toFixed(1)),
+        totalFillers: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.fillerCount, 0),
+        totalHedging: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.hedgingCount, 0),
+        totalRestarts: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.sentenceRestarts, 0),
+        avgRelevance: parseFloat(
+          (turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.relevanceScore, 0) / turnsWithDelivery.length).toFixed(1),
+        ),
+        avgSpecificity: parseFloat(
+          (turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.specificityScore, 0) / turnsWithDelivery.length).toFixed(1),
+        ),
+      }
+    : null;
+
   return {
     ...result,
     scores: {
       technical: parseFloat(technicalScore.toFixed(1)),
       voice: parseFloat(voiceScore.toFixed(1)),
-      combined: parseFloat(
-        (technicalScore * 0.6 + voiceScore * 0.4).toFixed(1),
-      ),
+      delivery: deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
+      contentQuality: parseFloat(contentQuality.toFixed(1)),
+      combined: parseFloat(combined.toFixed(1)),
     },
     voiceSummary: {
       overallLabel:
@@ -235,5 +284,6 @@ export async function generateFinalReport(
             ).toFixed(0)
           : "N/A",
     },
+    deliverySummary,
   };
 }

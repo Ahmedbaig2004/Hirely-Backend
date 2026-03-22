@@ -39,10 +39,20 @@ async function retrieveContext(question) {
 /**
  * 🤖 The Judge: LLM Evaluation
  */
-async function evaluateWithLLM(question, answer, contextString) {
+async function evaluateWithLLM(question, answer, contextString, jobDescription) {
   const prompt = `
-    You are a strict Technical Interviewer.
-    
+    You are a Technical Interviewer evaluating a candidate.
+
+    ### JOB DESCRIPTION:
+    ${(jobDescription || "").substring(0, 800)}
+
+    ### IMPORTANT — CALIBRATE TO THE ROLE:
+    Read the job description above carefully. Identify the seniority level (Junior, Mid, Senior, Lead, etc.) and the role requirements.
+    - For JUNIOR roles: accept simplified, high-level explanations. A correct conceptual answer with basic terminology is strong (70-90). Don't expect deep internals, edge cases, or production-scale examples.
+    - For MID roles: expect solid understanding with some practical depth. Correct answers with reasonable detail score 70-85.
+    - For SENIOR roles: expect precise, detailed answers with real-world nuance, trade-offs, and edge cases for high scores (80-100).
+    - Always grade relative to what is REASONABLE for the role level, not against an absolute expert standard.
+
     ### CONTEXT (Official Documentation):
     ${contextString.substring(0, 3000)}
 
@@ -55,16 +65,17 @@ async function evaluateWithLLM(question, answer, contextString) {
     ### GRADING RULES:
     1. If the answer is "gibberish", "random characters", or completely unrelated, SCORE = 0.
     2. If the answer is technically incorrect, SCORE = 0-20.
-    3. If the answer is correct but vague, SCORE = 40-60.
-    4. If the answer is correct and detailed, SCORE = 80-100.
-    5. IGNORE spelling mistakes. Focus on Concepts.
+    3. If the answer is partially correct or correct but vague for the role level, SCORE = 40-60.
+    4. If the answer meets the expected depth for the role level, SCORE = 70-85.
+    5. If the answer exceeds expectations for the role level, SCORE = 85-100.
+    6. IGNORE spelling mistakes. Focus on Concepts.
 
     ### OUTPUT FORMAT (JSON ONLY):
     {
       "score": number,
       "feedback": "string (max 2 sentences)",
       "correctness": "string (Correct/Incorrect/Partial)"
-      "betterAnswer": "string (A concise, ideal answer to this question)"
+      "betterAnswer": "string (A concise, ideal answer appropriate for this role level)"
     }
   `;
 
@@ -85,7 +96,7 @@ async function evaluateWithLLM(question, answer, contextString) {
 /**
  * 🚀 Main Function
  */
-async function evaluateAnswer(question, userAnswer) {
+async function evaluateAnswer(question, userAnswer, jobDescription) {
   console.log("\n" + "=".repeat(60));
   console.log("🤖 HIRELY AI JUDGE");
   console.log("=".repeat(60));
@@ -151,6 +162,7 @@ async function evaluateAnswer(question, userAnswer) {
       question,
       userAnswer,
       contextString || "No context provided.",
+      jobDescription,
     );
 
     if (!evaluation) throw new Error("AI Service Unavailable");

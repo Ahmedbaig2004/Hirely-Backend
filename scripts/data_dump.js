@@ -40,7 +40,7 @@ async function main() {
   console.log(`   ID: ${rows[0].id}`);
   console.log(`   Vector Dimensions: ${sampleVector.length}`);
   console.log(
-    `   First 5 numbers: [${sampleVector.slice(0, 5).join(", ")}...]`
+    `   First 5 numbers: [${sampleVector.slice(0, 5).join(", ")}...]`,
   );
 
   await prisma.$disconnect();

@@ -45,7 +45,7 @@ export const stateManager = {
   },
 
   // 3. Save Turn
-  async saveTurn(sessionId, question, answer, evaluation) {
+  async saveTurn(sessionId, question, answer, evaluation, answerMode = "audio", deliveryAnalysis = null) {
     const session = await client.get(`interview:${sessionId}`);
     if (!session) return null;
 
@@ -60,6 +60,8 @@ export const stateManager = {
       feedback: evaluation.feedback,
       topic,
       difficulty,
+      answerMode,
+      deliveryAnalysis,
       timestamp: new Date().toISOString(),
     });
 

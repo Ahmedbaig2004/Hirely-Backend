@@ -39,10 +39,20 @@ model InterviewTurn {
   topic          String?  
   difficulty     String?
   softSkillScore Int?
+  answerMode     String?          // "audio" or "chat" (null for legacy data)
   audioUrl       String?          // Supabase Storage public URL for the recorded answer
 
-  // 🆕 NEW: Voice analysis relationship
-  voiceAnalysis   VoiceAnalysis?  // One-to-one relationship
+  // Delivery analysis (Gemini text modality)
+  deliveryScore     Float?
+  fillerCount       Int?
+  hedgingCount      Int?
+  sentenceRestarts  Int?
+  relevanceScore    Float?
+  specificityScore  Float?
+  deliveryFeedback  Json?          // Full structured delivery analysis
+
+  // Voice analysis relationship
+  voiceAnalysis   VoiceAnalysis?
 
   createdAt   DateTime @default(now())
 }
@@ -92,4 +102,38 @@ model Document {
   metadata  Json?
   source    String?
   createdAt DateTime                    @default(now())
+}
+
+model CodingQuestion {
+  id              Int        @id @default(autoincrement())
+  problemId       Int        @unique
+  title           String     @unique
+  slug            String     @unique
+  difficulty      String                  // "Easy", "Medium", "Hard"
+  category        String                  // Auto-derived DSA pattern: "Two Pointers", "Dynamic Programming", etc.
+  description     String                  // Full problem statement
+  topics          String[]                // All topic tags: ["Array", "Hash Table"]
+  examples        Json?      @db.JsonB    // Array of {example_num, example_text, images}
+  constraints     String[]                // Constraint strings
+  codeSnippets    Json?      @db.JsonB    // { "python3": "...", "javascript": "...", ... }
+  hints           String[]                // Progressive hint strings
+  solution        String?                 // Markdown solution
+  masterSolution  String?                 // Gemini-generated Python3 stdin/stdout solution
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  testCases       TestCase[]
+}
+
+model TestCase {
+  id                Int            @id @default(autoincrement())
+  codingQuestionId  Int
+  codingQuestion    CodingQuestion @relation(fields: [codingQuestionId], references: [id], onDelete: Cascade)
+  input             String         // stdin string
+  expectedOutput    String         // expected stdout string
+  category          String         // "basic" | "edge" | "stress"
+  isVerified        Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+
+  @@index([codingQuestionId])
 }

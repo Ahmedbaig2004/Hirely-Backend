@@ -6,6 +6,7 @@ import healthRoutes from "./routes/healthRoutes.js";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import evaluateRoutes from "./routes/evaluateRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import codingQuestionRoutes from "./routes/codingQuestionRoutes.js";
 dotenv.config();
 
 const app = express();
@@ -45,6 +46,7 @@ app.use("/", healthRoutes);
 app.use("/api", interviewRoutes);
 app.use("/api", evaluateRoutes);
 app.use("/api", dashboardRoutes);
+app.use("/api", codingQuestionRoutes);
 app.listen(PORT, () => {
   console.log(`\n🚀 HIRELY Backend running on http://localhost:${PORT}`);
 });
