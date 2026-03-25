@@ -22,6 +22,25 @@ export const getInterviews = async (req, res) => {
   }
 };
 
+// DELETE /api/interviews/:id
+export const deleteInterview = async (req, res) => {
+  const { id } = req.params;
+  const { userId } = req.query;
+
+  try {
+    const interview = await prisma.interview.findUnique({ where: { id } });
+    if (!interview) return res.status(404).json({ error: "Not found" });
+    if (interview.userId !== userId) {
+      return res.status(403).json({ error: "Unauthorized: Cannot delete this interview" });
+    }
+    await prisma.interview.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Delete Error:", error);
+    res.status(500).json({ error: "Failed to delete interview" });
+  }
+};
+
 // GET /api/interviews/:id
 export const getInterviewDetail = async (req, res) => {
   const { id } = req.params;

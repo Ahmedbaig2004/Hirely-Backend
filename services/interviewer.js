@@ -68,7 +68,7 @@ async function generateAIVoiceInsights(voiceAnalyses) {
         ...base,
         topFactors: shapExplanations.slice(0, 3).map((e) => ({
           feature: e.label,
-          impact: e.direction,        // "increased" or "decreased"
+          impact: e.direction, // "increased" or "decreased"
           explanation: e.explanation, // already-written coaching tip
         })),
       };
@@ -105,7 +105,7 @@ Rules:
 - If a factor appears positive in some turns and negative in others, note the inconsistency
 - Lead with strengths, then areas to improve
 - Be specific and actionable (e.g. "try pausing between key points" not "work on pacing")
-- Write in second person ("You maintained steady projection throughout")
+- Write in second person ("e.g .You maintained steady projection throughout")
 - Keep each observation to one sentence
 - Do not refer to specific turn numbers`;
 
@@ -128,15 +128,35 @@ export async function getNextQuestion(session) {
   }
 
   const historyText = session.history
-    .map((h) => `Q: ${h.question}\nA: ${h.answer}\nScore: ${h.score}/100`)
+    .map(
+      (h) =>
+        `Q: ${h.question}\nA: ${h.answer}\nScore: ${h.score}/100\nDifficulty: ${h.difficulty || "Medium"}`,
+    )
     .join("\n---\n");
+
+  const lastTurn = session.history[session.history.length - 1];
+  const lastScore = lastTurn?.score ?? 50;
+  const lastDifficulty = lastTurn?.difficulty || "Medium";
 
   const prompt = `
     You are a Dynamic Technical Interviewer.
     JOB CONTEXT: ${session.jobDescription.substring(0, 500)}...
-    INTERVIEW HISTORY: ${historyText}
 
-    TASK: Generate the NEXT follow-up question. Adapt based on previous answers.
+    INTERVIEW HISTORY:
+    ${historyText}
+
+    LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastScore}/100.
+
+    ADAPTIVE DIFFICULTY RULES:
+    - First, identify the role's seniority level from the job context (Junior, Mid, Senior).
+    - Score >= 75 on the last question: you MAY increase difficulty by ONE level (Easy→Medium, Medium→Hard). Never jump two levels.
+    - Score < 50 on the last question: DECREASE difficulty by one level or stay the same. Do NOT keep asking Hard questions after a poor score.
+    - JUNIOR roles: never go above Medium difficulty unless the candidate scored >= 80 on a Medium question. Hard questions are stretch territory — use sparingly.
+    - MID roles: default range is Medium. Only go to Hard if they scored >= 75 on a Medium question.
+    - SENIOR roles: default range is Medium-Hard. Easy is only for warm-up.
+    - Always set the "difficulty" field to exactly one of: "Easy", "Medium", or "Hard".
+
+    TASK: Generate the NEXT follow-up question. Follow the difficulty rules above strictly.
   `;
 
   const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
@@ -152,10 +172,45 @@ export async function generateFinalReport(
   jobDescription,
   gapAnalysis,
 ) {
-  // 1. Calculate Technical Score
+  // 1. Calculate Technical Score (difficulty-adjusted)
+  // Detect role seniority from job description
+  const jdLower = jobDescription.toLowerCase();
+  const roleSeniority =
+    jdLower.includes("senior") ||
+    jdLower.includes("lead") ||
+    jdLower.includes("principal")
+      ? "senior"
+      : jdLower.includes("junior") ||
+          jdLower.includes("entry") ||
+          jdLower.includes("graduate") ||
+          jdLower.includes("intern")
+        ? "junior"
+        : "mid";
+
+  const difficultyRank = { Easy: 0, Medium: 1, Hard: 2 };
+  const roleBaseRank = { junior: 0, mid: 1, senior: 2 };
+
+  function adjustScoreForDifficulty(rawScore, difficulty) {
+    const gap = (difficultyRank[difficulty] ?? 1) - roleBaseRank[roleSeniority];
+    if (gap > 0) {
+      // Question is ABOVE the candidate's expected level (stretch)
+      // Floor: struggling on stretch is normal — don't let it tank the score
+      // Boost: acing a stretch question deserves a reward
+      const floored = Math.max(rawScore, 50);
+      return rawScore >= 70 ? Math.min(rawScore + 10, 100) : floored;
+    }
+    // Question matches or is below level — raw score stands
+    return rawScore;
+  }
+
   const technicalScore =
     history.length > 0
-      ? history.reduce((sum, turn) => sum + turn.score, 0) / history.length
+      ? history.reduce(
+          (sum, turn) =>
+            sum +
+            adjustScoreForDifficulty(turn.score, turn.difficulty || "Medium"),
+          0,
+        ) / history.length
       : 0;
 
   // 1b. Calculate Delivery Score (text modality)
@@ -182,26 +237,34 @@ export async function generateFinalReport(
   }
 
   // 3. Aggregate Communication Patterns
-  const voiceScore =
-    voiceAnalyses.length > 0
-      ? voiceAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
-        voiceAnalyses.length
-      : 50;
+  const hasVoiceData = voiceAnalyses.length > 0;
+  const voiceScore = hasVoiceData
+    ? voiceAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
+      voiceAnalyses.length
+    : null;
 
   // AI-generated insights: one LLM call synthesizes all turns into coherent, non-repetitive feedback
-  console.log(`🤖 Generating AI voice insights for ${voiceAnalyses.length} turns...`);
+  console.log(
+    `🤖 Generating AI voice insights for ${voiceAnalyses.length} turns...`,
+  );
   const allVocalInsights = await generateAIVoiceInsights(voiceAnalyses);
 
   // Delivery insights summary for the prompt
-  const deliveryInsights = turnsWithDelivery.length > 0
-    ? turnsWithDelivery.map((t, i) => {
-        const d = t.deliveryAnalysis;
-        return `Q${i + 1}: Delivery ${d.deliveryScore}/100, Fillers: ${d.fillerCount}, Hedging: ${d.hedgingCount}, Relevance: ${d.relevanceScore}/100, Specificity: ${d.specificityScore}/100. Top improvement: ${d.topImprovement}`;
-      }).join("\n")
-    : "No delivery analysis available.";
+  const deliveryInsights =
+    turnsWithDelivery.length > 0
+      ? turnsWithDelivery
+          .map((t, i) => {
+            const d = t.deliveryAnalysis;
+            return `Q${i + 1}: Delivery ${d.deliveryScore}/100, Fillers: ${d.fillerCount}, Hedging: ${d.hedgingCount}, Relevance: ${d.relevanceScore}/100, Specificity: ${d.specificityScore}/100. Top improvement: ${d.topImprovement}`;
+          })
+          .join("\n")
+      : "No delivery analysis available.";
 
   const historyText = history
-    .map((h, i) => `Q${i + 1}: ${h.question}\nTechnical Score: ${h.score}/100`)
+    .map(
+      (h, i) =>
+        `Q${i + 1} [${h.difficulty || "Medium"}]: ${h.question}\nTechnical Score: ${h.score}/100`,
+    )
     .join("\n\n");
 
   // 4. The "Expert Recruiter" Prompt
@@ -209,13 +272,14 @@ export async function generateFinalReport(
     You are an expert Technical Hiring Manager.
 
     TECHNICAL DATA:
-    - Score: ${technicalScore.toFixed(1)}/100
+    - Score: ${technicalScore.toFixed(1)}/100 (difficulty-adjusted)
     - History: ${historyText}
     - Resume Gaps: ${JSON.stringify(gapAnalysis)}
+    - Note: The interview used adaptive difficulty — harder questions were asked when the candidate performed well. A lower score on a Hard question is more acceptable than the same score on an Easy question, especially for junior/entry-level roles.
 
     COMMUNICATION DATA:
-    - Vocal Confidence Score: ${voiceScore.toFixed(1)}/100
-    - Vocal Observations: ${allVocalInsights.length > 0 ? allVocalInsights.join("; ") : "Stable and confident delivery."}
+    - Vocal Confidence Score: ${voiceScore !== null ? voiceScore.toFixed(1) + "/100" : "N/A (chat-only interview)"}
+    - Vocal Observations: ${allVocalInsights.length > 0 ? allVocalInsights.join("; ") : hasVoiceData ? "Stable and confident delivery." : "No audio data — chat-only interview."}
 
     DELIVERY ANALYSIS (transcript quality):
     - Overall Delivery Score: ${deliveryScore !== null ? deliveryScore.toFixed(1) + "/100" : "N/A"}
@@ -228,6 +292,7 @@ export async function generateFinalReport(
     "vocal tremors" or "frequent hesitations," note that they may know the theory but lack
     confidence in explaining it under pressure.
     Also note delivery patterns: excessive filler words, hedging language, or lack of specificity.
+    DIFFICULTY CURVE: If the candidate answered Easy/Medium questions well but struggled on Hard stretch questions, treat this as a POSITIVE signal for junior/mid roles — they demonstrated competence at their level and the system pushed them to their ceiling. Only treat Hard question struggles negatively for Senior roles where Hard is the expected baseline.
   `;
 
   const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
@@ -235,55 +300,79 @@ export async function generateFinalReport(
 
   // 5. Final Combined Payload for the Database & UI
   // Content quality blends technical accuracy + delivery quality
-  const contentQuality = deliveryScore !== null
-    ? (technicalScore * 0.6 + deliveryScore * 0.4)
-    : technicalScore;
+  const contentQuality =
+    deliveryScore !== null
+      ? technicalScore * 0.6 + deliveryScore * 0.4
+      : technicalScore;
 
   // Fusion weights: content 60%, vocal 40% (interim — no video yet)
   // When video is added: content 41%, video 32%, vocal 27%
-  const combined = contentQuality * 0.6 + voiceScore * 0.4;
+  // For chat-only interviews with no voice data, combined = contentQuality only
+  const combined = voiceScore !== null
+    ? contentQuality * 0.6 + voiceScore * 0.4
+    : contentQuality;
 
   // Delivery summary for frontend
-  const deliverySummary = turnsWithDelivery.length > 0
-    ? {
-        avgDeliveryScore: parseFloat(deliveryScore.toFixed(1)),
-        totalFillers: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.fillerCount, 0),
-        totalHedging: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.hedgingCount, 0),
-        totalRestarts: turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.sentenceRestarts, 0),
-        avgRelevance: parseFloat(
-          (turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.relevanceScore, 0) / turnsWithDelivery.length).toFixed(1),
-        ),
-        avgSpecificity: parseFloat(
-          (turnsWithDelivery.reduce((s, t) => s + t.deliveryAnalysis.specificityScore, 0) / turnsWithDelivery.length).toFixed(1),
-        ),
-      }
-    : null;
+  const deliverySummary =
+    turnsWithDelivery.length > 0
+      ? {
+          avgDeliveryScore: parseFloat(deliveryScore.toFixed(1)),
+          totalFillers: turnsWithDelivery.reduce(
+            (s, t) => s + t.deliveryAnalysis.fillerCount,
+            0,
+          ),
+          totalHedging: turnsWithDelivery.reduce(
+            (s, t) => s + t.deliveryAnalysis.hedgingCount,
+            0,
+          ),
+          totalRestarts: turnsWithDelivery.reduce(
+            (s, t) => s + t.deliveryAnalysis.sentenceRestarts,
+            0,
+          ),
+          avgRelevance: parseFloat(
+            (
+              turnsWithDelivery.reduce(
+                (s, t) => s + t.deliveryAnalysis.relevanceScore,
+                0,
+              ) / turnsWithDelivery.length
+            ).toFixed(1),
+          ),
+          avgSpecificity: parseFloat(
+            (
+              turnsWithDelivery.reduce(
+                (s, t) => s + t.deliveryAnalysis.specificityScore,
+                0,
+              ) / turnsWithDelivery.length
+            ).toFixed(1),
+          ),
+        }
+      : null;
 
   return {
     ...result,
     scores: {
       technical: parseFloat(technicalScore.toFixed(1)),
-      voice: parseFloat(voiceScore.toFixed(1)),
-      delivery: deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
+      voice: voiceScore !== null ? parseFloat(voiceScore.toFixed(1)) : null,
+      delivery:
+        deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
       contentQuality: parseFloat(contentQuality.toFixed(1)),
       combined: parseFloat(combined.toFixed(1)),
     },
-    voiceSummary: {
-      overallLabel:
-        voiceScore > 75
-          ? "Highly Confident"
-          : voiceScore > 50
-            ? "Moderately Confident"
-            : "Needs Improvement",
-      allInsights: allVocalInsights,
-      avgWPM:
-        voiceAnalyses.length > 0
-          ? (
-              voiceAnalyses.reduce((sum, v) => sum + v.wordsPerMinute, 0) /
-              voiceAnalyses.length
-            ).toFixed(0)
-          : "N/A",
-    },
+    voiceSummary: hasVoiceData
+      ? {
+          overallLabel:
+            voiceScore > 75
+              ? "Highly Confident"
+              : voiceScore > 50
+                ? "Moderately Confident"
+                : "Needs Improvement",
+          allInsights: allVocalInsights,
+          avgWPM: (
+            voiceAnalyses.reduce((sum, v) => sum + v.wordsPerMinute, 0) /
+            voiceAnalyses.length
+          ).toFixed(0),
+        }
+      : null,
     deliverySummary,
   };
 }

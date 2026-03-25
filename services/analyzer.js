@@ -1,8 +1,19 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
+import crypto from "crypto";
 import pdf from "pdf-parse/lib/pdf-parse.js";
+import { Redis } from "@upstash/redis";
 import dotenv from "dotenv";
 dotenv.config();
+
+const redisClient = new Redis({
+  url: process.env.REDIS_URL,
+  token: process.env.REDIS_TOKEN,
+});
+
+function hashBuffer(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
 
 // 1. Initialize Gemini
 const llm = new ChatGoogleGenerativeAI({
@@ -36,14 +47,71 @@ const AnalysisSchema = z.object({
     .describe("Exactly 4 interview questions"), // Matched with prompt below
 });
 
-// 3. Main Function
-export async function generateInterviewContext(resumeBuffer, jobDescription) {
-  console.log("📄 Parsing PDF Buffer...");
+// 3. Resume Validation
+async function validateResumeContent(text) {
+  const check = await llm.invoke(
+    `You are a document classifier. Read the following text extracted from a PDF and determine if it is a professional resume or CV.
 
-  const pdfData = await pdf(resumeBuffer);
-  // Safety Truncate
-  const resumeText = pdfData.text.substring(0, 15000);
-  console.log("📝 Resume Text Extracted.", resumeText);
+A resume typically contains: work experience, education, skills, contact info, job titles, or project descriptions.
+
+If this is NOT a resume (e.g. a recipe, article, random text, story, manual, etc.), reply "no".
+If this IS a resume/CV, reply "yes".
+
+Reply with ONLY "yes" or "no".
+
+TEXT:
+${text.substring(0, 3000)}`
+  );
+  const answer = check.content.toString().trim().toLowerCase();
+  return answer.startsWith("yes");
+}
+
+// 4. Main Function
+export async function generateInterviewContext(resumeBuffer, jobDescription) {
+  const bufferHash = hashBuffer(resumeBuffer);
+  let resumeText;
+
+  // --- Resume cache: skip PDF parse + validation if same file seen before ---
+  try {
+    const cached = await redisClient.get(`resume:${bufferHash}`);
+    if (cached) {
+      const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
+      if (!parsed.isValid) {
+        throw new Error("The uploaded document does not appear to be a resume. Please upload your professional resume or CV.");
+      }
+      resumeText = parsed.text;
+      console.log("📄 Resume cache HIT — skipping parse + validation");
+    }
+  } catch (e) {
+    // Re-throw validation errors, swallow Redis errors
+    if (e.message?.includes("does not appear to be a resume")) throw e;
+    console.warn("Resume cache read failed, proceeding without cache:", e.message);
+  }
+
+  if (!resumeText) {
+    console.log("📄 Parsing PDF Buffer...");
+    const pdfData = await pdf(resumeBuffer);
+    resumeText = pdfData.text.substring(0, 15000);
+
+    const isResume = await validateResumeContent(resumeText);
+
+    // Cache result (valid or invalid) for 30 days
+    try {
+      await redisClient.set(
+        `resume:${bufferHash}`,
+        JSON.stringify({ text: resumeText, isValid: isResume }),
+        { ex: 2592000 },
+      );
+    } catch (e) {
+      console.warn("Resume cache write failed:", e.message);
+    }
+
+    if (!isResume) {
+      throw new Error("The uploaded document does not appear to be a resume. Please upload your professional resume or CV.");
+    }
+    console.log("📄 Resume parsed + validated + cached");
+  }
+
   console.log("🤖 Generating Gap Analysis & Questions...");
 
   const structuredLlm = llm.withStructuredOutput(AnalysisSchema);
@@ -76,7 +144,10 @@ TASK INSTRUCTIONS:
       - Donot explictly say that it is the final question on the final question
 
      - "Cover the entire Job Description, not just the gaps.
-    - Difficulty: Match the seniority level of the JD (e.g., Senior roles get system design questions).     
+    - Difficulty: Assign an explicit difficulty level ("Easy", "Medium", or "Hard") to each question. Follow this distribution based on the JD seniority:
+      - JUNIOR/ENTRY/INTERN roles: Q1=Easy (intro), Q2=Easy, Q3=Medium, Q4=Medium. NEVER assign Hard to junior roles.
+      - MID-LEVEL roles: Q1=Easy (intro), Q2=Medium, Q3=Medium, Q4=Hard.
+      - SENIOR/LEAD/PRINCIPAL roles: Q1=Easy (intro), Q2=Medium, Q3=Hard, Q4=Hard.
     - **Tone:** Be conversational. Use natural filler words ("Okay", "Great", "Moving on").      -be like a human interviewer
       -Can also ask about the projects from the resume
 

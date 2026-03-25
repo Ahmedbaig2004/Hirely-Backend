@@ -96,6 +96,9 @@ export const initInterview = async (req, res) => {
     });
   } catch (e) {
     console.error("Init Error:", e);
+    if (e.message?.includes("does not appear to be a resume")) {
+      return res.status(400).json({ error: e.message });
+    }
     res.status(500).json({ error: "Init failed" });
   }
 };
@@ -119,13 +122,14 @@ export const submitAnswer = async (req, res) => {
       return res.status(400).json({ error: "No answer provided." });
     }
 
-    // 2. Fetch session for job description context
+    // 2. Fetch session for job description + current question difficulty
     const session = await stateManager.getSession(sessionId);
     const jobDescription = session?.jobDescription || "";
+    const currentDifficulty = session?.currentQuestion?.difficulty || "Medium";
 
     // 3. Textual Evaluation + Delivery Analysis (in parallel)
     const [evaluation, deliveryAnalysis] = await Promise.all([
-      evaluateAnswer(question, answerText, jobDescription),
+      evaluateAnswer(question, answerText, jobDescription, currentDifficulty),
       analyzeDelivery(answerText, question),
     ]);
 
@@ -271,11 +275,13 @@ export const getVoiceProgress = async (req, res) => {
  * Finalize interview - wait for voice analyses, generate report, persist to DB
  */
 export const finalizeInterview = async (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+  const uploadDir = path.join(process.cwd(), "uploads", sessionId);
+
   try {
-    const { sessionId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: "sessionId is required" });
-    }
 
     // 1. Read session state from Redis
     const session = await stateManager.getSession(sessionId);
@@ -338,14 +344,13 @@ export const finalizeInterview = async (req, res) => {
     );
 
     const totalScore = enrichedHistory.reduce(
-      (sum, turn) => sum + turn.score,
+      (sum, turn) => sum + (turn.score ?? 0),
       0,
     );
     const averageScore = Math.round(totalScore / enrichedHistory.length);
 
     // 5. Upload audio files to Supabase Storage
     const audioUrls = {};
-    const uploadDir = path.join(process.cwd(), "uploads", sessionId);
     console.log(
       `☁️  Uploading ${enrichedHistory.length} audio files to Supabase Storage...`,
     );
@@ -388,8 +393,8 @@ export const finalizeInterview = async (req, res) => {
           create: enrichedHistory.map((turn, idx) => ({
             question: turn.question,
             answer: turn.answer,
-            score: turn.score,
-            feedback: turn.feedback,
+            score: turn.score ?? 0,
+            feedback: turn.feedback || "",
             improvedAnswer: turn.betterAnswer,
             topic: turn.topic || "General",
             difficulty: turn.difficulty || "Medium",
@@ -429,20 +434,24 @@ export const finalizeInterview = async (req, res) => {
       },
     });
 
-    // 7. Cleanup Redis + local audio files
-    await stateManager.deleteSession(sessionId);
-    for (let i = 1; i <= MAX_QUESTIONS; i++) {
-      await redisClient.del(`voice_analysis:${sessionId}:${i}`);
-    }
-    if (fs.existsSync(uploadDir)) {
-      fs.rmSync(uploadDir, { recursive: true, force: true });
-      console.log(`🗑️  Cleaned up local audio files for ${sessionId}`);
-    }
-
     console.log(`✅ Interview ${sessionId} finalized and persisted.`);
     return res.json({ success: true, finalReport });
   } catch (e) {
     console.error("Finalize Error:", e);
     res.status(500).json({ error: "Failed to finalize interview" });
+  } finally {
+    // 7. Always cleanup Redis + local audio files, even on error
+    try {
+      await stateManager.deleteSession(sessionId);
+      for (let i = 1; i <= MAX_QUESTIONS; i++) {
+        await redisClient.del(`voice_analysis:${sessionId}:${i}`);
+      }
+      if (fs.existsSync(uploadDir)) {
+        fs.rmSync(uploadDir, { recursive: true, force: true });
+        console.log(`🗑️  Cleaned up local audio files for ${sessionId}`);
+      }
+    } catch (cleanupErr) {
+      console.warn("⚠️ Cleanup error:", cleanupErr.message);
+    }
   }
 };

@@ -35,138 +35,143 @@ models = {}
 # translate that into language candidates can actually act on.
 # ============================================================
 FEATURE_LABELS = {
-    "loudnessPeaksPerSec":                        "Voice Energy Dynamics",
-    "loudness_sma3_percentile20.0":               "Baseline Volume Level",
-    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Upper Resonance Variability",
-    "loudness_dynamics_power":                    "Dynamic Expression Power",
-    "vocal_projection":                           "Vocal Projection Strength",
-    "F3amplitudeLogRelF0_sma3nz_amean":           "Upper Vocal Resonance",
-    "voiced_flow":                                "Speech Continuity",
-    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Mid Resonance Variation",
-    "F2bandwidth_sma3nz_stddevNorm":              "Articulation Precision",
-    "F2amplitudeLogRelF0_sma3nz_amean":           "Mid Vocal Resonance",
-    "loudness_sma3_meanRisingSlope":              "Vocal Attack (Energy Rise)",
-    "loudness_sma3_stddevNorm":                   "Volume Variation",
-    "mfcc4V_sma3nz_amean":                        "Voice Timbre Quality",
-    "F0semitoneFrom27.5Hz_sma3nz_percentile50.0": "Median Pitch",
-    "F0semitoneFrom27.5Hz_sma3nz_percentile80.0": "Peak Pitch Level",
-    "F3bandwidth_sma3nz_amean":                   "Upper Formant Clarity",
-    "mfcc2_sma3_amean":                           "Voice Spectral Shape",
-    "mfcc2V_sma3nz_amean":                        "Voiced Spectral Quality",
-    "slopeUV500-1500_sma3nz_amean":               "High-Frequency Presence",
-    "mfcc1_sma3_stddevNorm":                      "Voice Quality Variation",
-    "hammarbergIndexV_sma3nz_stddevNorm":         "Voice Quality Consistency",
-    "alphaRatioUV_sma3nz_amean":                  "Spectral Energy Balance",
-    "mfcc3_sma3_stddevNorm":                      "Mid-Frequency Tonal Variation",
-    "StddevUnvoicedSegmentLength":                "Pause Pattern Regularity",
-    "mfcc4_sma3_amean":                           "Upper Spectral Quality",
-    "loudness_sma3_pctlrange0-2":                 "Loudness Dynamic Range",
-    "F0semitoneFrom27.5Hz_sma3nz_amean":          "Average Pitch",
-    "vocal_instability":                          "Voice Steadiness",
-    "HNRdBACF_sma3nz_amean":                      "Voice Clarity",
-    "spectralFlux_sma3_amean":                    "Vocal Expressiveness",
-    "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Stability Pattern",
-    "mfcc1V_sma3nz_stddevNorm":                   "Core Vocal Quality Variation",
-    "F1amplitudeLogRelF0_sma3nz_amean":           "Vowel Resonance Strength",
-    "mfcc4V_sma3nz_stddevNorm":                   "Tonal Quality Variation",
-    "mfcc4_sma3_stddevNorm":                      "Spectral Tonal Variation",
-    "logRelF0-H1-H2_sma3nz_amean":               "Voice Breathiness / Tension",
-    "spectralFluxV_sma3nz_stddevNorm":            "Expressive Variation",
-    "equivalentSoundLevel_dBp":                   "Overall Sound Level",
-    "F2frequency_sma3nz_stddevNorm":              "Vowel Quality Variation",
-    "loudness_sma3_meanFallingSlope":             "Vocal Release",
-    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Variation",
+    # --- Energy / Volume ---
+    "loudnessPeaksPerSec":                        "Passion & Emphasis",
+    "loudness_sma3_percentile20.0":               "Quiet-Moment Volume",
+    "loudness_dynamics_power":                    "Dynamic Range",
+    "vocal_projection":                           "Room-Filling Power",
+    "loudness_sma3_meanRisingSlope":              "Starting Strength",
+    "loudness_sma3_stddevNorm":                   "Volume Variety",
+    "loudness_sma3_pctlrange0-2":                 "Whisper-to-Shout Range",
+    "loudness_sma3_meanFallingSlope":             "Sentence Endings",
+    "loudness_sma3_stddevRisingSlope":            "Attack Variation",
+    # --- Fluency / Steadiness ---
+    "voiced_flow":                                "Talking in Flow",
+    "vocal_instability":                          "Nervousness Meter",
+    "StddevUnvoicedSegmentLength":                "Pause Consistency",
+    "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Wobble",
+    "MeanVoicedSegmentLengthSec":                 "Phrase Length",
+    # --- Clarity / Crispness ---
+    "HNRdBACF_sma3nz_amean":                      "Voice Smoothness",
+    "alphaRatioUV_sma3nz_amean":                  "Consonant Crispness",
+    "slopeUV500-1500_sma3nz_amean":               "Speech Crispness",
+    "F2bandwidth_sma3nz_stddevNorm":              "Mouth Movement Consistency",
+    "F3bandwidth_sma3nz_stddevNorm":              "Pronunciation Consistency",
+    # --- Pitch / Intonation ---
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Movement",
+    # --- Breath & Tension ---
+    "logRelF0-H1-H2_sma3nz_stddevNorm":          "Breath Control Variation",
+    # --- Expressiveness ---
+    "spectralFluxV_sma3nz_stddevNorm":            "Expressive Variety",
+    "hammarbergIndexUV_sma3nz_amean":             "Spectral Tilt",
+    # --- Resonance ---
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Voice Richness Variety",
+    "F3amplitudeLogRelF0_sma3nz_amean":           "Voice Richness",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vowel Power Variety",
+    "F2amplitudeLogRelF0_sma3nz_amean":           "Vowel Power",
+    "F1amplitudeLogRelF0_sma3nz_stddevNorm":      "Resonance Variation",
+    "F2frequency_sma3nz_stddevNorm":              "Vowel Clarity Range",
     "slopeV500-1500_sma3nz_amean":                "Voice Brightness",
-    "F1frequency_sma3nz_stddevNorm":              "Vowel Articulation Variation",
-    "F0semitoneFrom27.5Hz_sma3nz_percentile20.0": "Low-End Pitch",
-    "shimmerLocaldB_sma3nz_amean":                "Volume Consistency",
+    "F3frequency_sma3nz_stddevNorm":              "Upper Resonance Movement",
+    # --- Voice Quality ---
+    "mfcc1_sma3_stddevNorm":                      "Voice Texture Variety",
+    "mfcc1V_sma3nz_stddevNorm":                   "Core Voice Variety",
+    "mfcc2_sma3_stddevNorm":                      "Voice Character Variety",
+    "mfcc2V_sma3nz_stddevNorm":                   "Voice Warmth Variety",
+    "mfcc3_sma3_stddevNorm":                      "Tonal Variety",
+    "mfcc4_sma3_stddevNorm":                      "Tone Consistency",
+    "mfcc4V_sma3nz_stddevNorm":                   "Tone Steadiness",
+    "hammarbergIndexV_sma3nz_stddevNorm":         "Voice Quality Steadiness",
+    "hammarbergIndexV_sma3nz_amean":              "Voice Fullness",
+    "alphaRatioV_sma3nz_amean":                   "Spectral Balance",
+    "alphaRatioV_sma3nz_stddevNorm":              "Spectral Balance Variation",
+    "slopeV0-500_sma3nz_stddevNorm":              "Low-Frequency Variation",
+    "slopeV0-500_sma3nz_amean":                   "Voice Warmth",
+    "brightness_contrast":                        "Brightness vs Warmth Balance",
 }
 
-# Positive = this feature pushed the score UP (good); negative = pushed DOWN (area to work on)
+# ============================================================
+# COACHING TIPS — Problem → Why it matters → The Drill
+# Every tip must describe a PHYSICAL ACTION the user can do.
+# No acoustic jargon. If a user can't visualize the body part
+# they need to move, the feedback is useless.
+# ============================================================
 FEATURE_TIPS = {
     "loudnessPeaksPerSec": {
-        "positive": "Your speech had strong, well-distributed energy peaks — emphasizing key points with volume variation signals confidence and keeps the interviewer engaged.",
-        "negative": "Your speech lacked distinct energy peaks. Try consciously stressing key words and conclusions with a slight volume boost to sound more decisive and engaged.",
+        "positive": "You punched the important words — that's how confident speakers highlight key points. Keep doing it.",
+        "negative": "Your voice stayed at one flat volume the entire time. Interviewers hear monotone as 'bored' or 'unsure.' The fix: Pick 3 key words in your next answer and say them 20% louder than everything else.",
     },
     "loudness_sma3_percentile20.0": {
-        "positive": "Your baseline volume was strong, staying audible even in quieter moments — this prevents the listener from straining to hear you.",
-        "negative": "Your quieter moments dropped very soft. Maintain an audible baseline volume even when pausing to think — dropping too quiet signals uncertainty.",
+        "positive": "Even in your quieter moments, your voice stayed clearly audible — that projects steadiness and control.",
+        "negative": "When you paused to think, your volume dropped to a near-whisper. Trailing off signals uncertainty to interviewers. The fix: Take a belly breath before answering, and imagine someone is 3 meters away — never drop below 'conversation volume.'",
     },
     "vocal_projection": {
-        "positive": "Strong vocal projection — your voice carried confidently, making you sound present and authoritative throughout your answer.",
-        "negative": "Your vocal projection was weaker than ideal. Try speaking as if addressing someone at the far end of a conference table — project from the diaphragm, not the throat.",
+        "positive": "Your voice filled the room — you sounded present and authoritative without shouting.",
+        "negative": "Your voice sounded thin, like you were talking to yourself. Weak projection reads as low confidence. The fix: Sit up straight, breathe from your belly, and speak as if addressing someone across a conference table.",
     },
     "voiced_flow": {
-        "positive": "Excellent speech continuity — you spoke in smooth, connected segments without awkward fragmentation, signaling genuine fluency and solid preparation.",
-        "negative": "Your speech had fragmented voiced segments with gaps between phrases. Using a simple structure (\"first... then... finally...\") before answering helps maintain a continuous, confident delivery.",
+        "positive": "You spoke in smooth, connected sentences — no choppy fragments. That signals preparation and genuine fluency.",
+        "negative": "Your sentences kept breaking into short, choppy bursts — it sounds like you're making it up on the spot. The fix: Before answering, mentally outline 'First... then... finally...' and speak each chunk as one continuous breath.",
     },
     "vocal_instability": {
-        "positive": "Your voice was steady with minimal micro-tremor — low pitch and volume fluctuations project composure and control under pressure.",
-        "negative": "Vocal micro-tremor was detected (minute combined pitch and volume fluctuations). Taking a slow diaphragmatic breath before answering physically calms the nervous system and steadies the voice.",
+        "positive": "Your voice was rock-steady — no shaking or wavering. That projects composure under pressure.",
+        "negative": "Your voice had a slight shake or wobble — vocal tremor is the #1 thing interviewers subconsciously associate with nervousness. The fix: Before speaking, exhale slowly for 4 seconds through pursed lips. This physically calms the vocal cords.",
     },
     "loudness_dynamics_power": {
-        "positive": "Strong dynamic expression — your loudness range combined with energy peaks created an engaging, varied delivery that holds attention.",
-        "negative": "Limited dynamic expression detected. Your loudness range was narrow with few energy peaks — deliberately vary your energy: louder for key points, softer for context.",
+        "positive": "Great dynamic range — you varied between quieter context and louder key points, keeping the listener engaged.",
+        "negative": "Your volume barely changed from start to finish — a flat delivery puts listeners on autopilot. The fix: Practice saying 'The MOST important thing is...' — whisper 'the most important thing is' then hit the key word with full volume.",
     },
     "HNRdBACF_sma3nz_amean": {
-        "positive": "High voice clarity — your harmonics-to-noise ratio was strong, meaning your voice sounded clean and resonant rather than breathy or rough.",
-        "negative": "Reduced voice clarity detected — a noisier voice signal sounds breathy or strained, which listeners associate with anxiety. Staying well-hydrated and doing light vocal warm-ups before interviews helps significantly.",
-    },
-    "spectralFlux_sma3_amean": {
-        "positive": "Good vocal expressiveness — your voice changed dynamically across your response, making your delivery feel alive and invested rather than recited.",
-        "negative": "Limited vocal expressiveness detected — a spectrally flat voice sounds monotone. Vary your pace, pitch contour, and emphasis on different parts of your answer.",
+        "positive": "Your voice sounded clean and smooth — no breathiness or roughness. Easy and pleasant to listen to.",
+        "negative": "Your voice sounded breathy or rough, like you were running out of air. A strained voice is harder to follow. The fix: Drink water beforehand, hum for 10 seconds to warm up your vocal cords, and support each sentence with a full breath.",
     },
     "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
-        "positive": "Natural pitch variation — you used good intonation patterns that made your delivery sound conversational and engaged rather than rehearsed.",
-        "negative": "Limited pitch variation detected — a flatter pitch contour sounds disengaged. Let your pitch naturally rise when introducing a point and fall conclusively at the end.",
-    },
-    "F0semitoneFrom27.5Hz_sma3nz_amean": {
-        "positive": "Your average pitch was in a confident, natural conversational range that resonates well.",
-        "negative": "Your average pitch was outside an optimal range — very high pitches can signal stress, very low pitches can reduce clarity. Recording practice sessions and listening back helps you calibrate.",
+        "positive": "Natural pitch movement — your voice rose and fell in conversational patterns that sound engaging and authentic.",
+        "negative": "Your pitch barely moved — every sentence sounded the same. Flat pitch = monotone = boring. The fix: Let your pitch rise when introducing a new point, and drop it firmly when concluding. Practice: 'What I learned was... (voice up) that testing matters. (voice down, firm).'",
     },
     "StddevUnvoicedSegmentLength": {
-        "positive": "Consistent pause lengths — your pauses followed a regular pattern, signaling structured thinking and deliberate pacing rather than stumbling.",
-        "negative": "Irregular pause lengths detected — mixing very short and very long silences creates an uneven rhythm. Aim for purposeful pauses of 1-2 seconds max when transitioning between ideas.",
+        "positive": "Your pauses were consistent and purposeful — it sounded like structured thinking, not stumbling.",
+        "negative": "Your pauses were all over the place — some too short, some awkwardly long. Erratic pauses make you sound unsure. The fix: Use deliberate 1-second pauses between ideas. Count 'one-Mississippi' silently, then continue.",
     },
-    "shimmerLocaldB_sma3nz_amean": {
-        "positive": "Consistent volume — your word-to-word loudness variation was low, projecting a controlled and steady delivery.",
-        "negative": "Volume inconsistency detected — your loudness fluctuated between words more than ideal. Focus on maintaining steady breath support throughout each sentence.",
+    "shimmerLocaldB_sma3nz_stddevNorm": {
+        "positive": "Steady volume control — your voice maintained consistent power across words, sounding composed.",
+        "negative": "Your volume wobbled unpredictably between words — this is perceived as nervousness. The fix: Practice sustaining 'ahhh' at one volume for 5 seconds, then count 'one... two... three...' keeping the same volume on each number.",
     },
     "loudness_sma3_pctlrange0-2": {
-        "positive": "Good loudness range — you used a healthy spread of volume levels, giving your speech natural dynamics without sounding erratic.",
-        "negative": "Very narrow loudness range — speaking with minimal volume variation flattens your delivery. Consciously vary your energy level across the answer for a more engaging effect.",
-    },
-    "logRelF0-H1-H2_sma3nz_amean": {
-        "positive": "Balanced voice tension — your voice showed a healthy balance between breath and phonation, sounding natural and confident rather than strained or breathy.",
-        "negative": "Voice tension imbalance detected — this can indicate breathiness (anxiety, insufficient closure) or pressed phonation (over-tension). Focus on relaxed, supported phonation with even breath flow.",
-    },
-    "equivalentSoundLevel_dBp": {
-        "positive": "Good overall sound level — you spoke at a clearly audible volume throughout, making it easy to follow your answers.",
-        "negative": "Your overall speaking volume was below optimal. Speaking slightly louder (as if the person is 2 meters away) projects more confidence and authority.",
+        "positive": "Good whisper-to-shout range — you used a healthy spread of volume that kept your delivery dynamic.",
+        "negative": "You spoke at one volume the entire time with almost no range — no dynamic range = monotone delivery. The fix: Practice reading a paragraph where you deliberately start quiet, build to medium, and finish strong.",
     },
     "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
-        "positive": "Good upper resonance variation — variability in your upper harmonics adds richness and liveliness to your voice.",
-        "negative": "Flat upper resonance — limited variation in your upper harmonics makes the voice sound less resonant. Opening up the back of the throat slightly while speaking can help.",
+        "positive": "Good voice richness variety — your voice had depth and liveliness that keeps listeners engaged.",
+        "negative": "Your voice sounded flat and thin — lacking richness. The fix: Open the back of your throat slightly, like the start of a yawn, while speaking. This adds natural warmth and depth to your voice.",
     },
     "F2amplitudeLogRelF0_sma3nz_amean": {
-        "positive": "Strong mid vocal resonance — your second formant energy was well-projected, contributing to a clear and intelligible voice.",
-        "negative": "Weak mid vocal resonance — low second formant amplitude makes your voice sound thinner. Working on open-mouth articulation helps strengthen this.",
+        "positive": "Strong vowel projection — your vowels were well-formed and resonant, making you clearly intelligible.",
+        "negative": "Your vowels sounded weak and swallowed — words blurred together. The fix: Over-pronounce vowels when practicing: 'I wOrkEd On A prOjEct...' Exaggerate first, then dial it back 50% for the real interview.",
     },
     "F2bandwidth_sma3nz_stddevNorm": {
-        "positive": "Good articulation precision — consistent formant bandwidth variation indicates clear, well-formed vowels across your speech.",
-        "negative": "Inconsistent articulation precision detected — variable formant bandwidths indicate unclear vowel formation. Slow down slightly and open your mouth more when articulating.",
+        "positive": "Precise mouth movements — your articulation was consistent, producing clear and well-formed sounds.",
+        "negative": "Your articulation was inconsistent — some words clear, others mumbled. Sloppy articulation sounds unprepared. The fix: Practice tongue twisters for 30 seconds before the interview — 'Red lorry, yellow lorry' or 'Unique New York.' This wakes up your mouth muscles.",
+    },
+    "alphaRatioUV_sma3nz_amean": {
+        "positive": "Crisp consonants — your 'T's, 'S's, and 'K's were sharp and clear, making every word distinct.",
+        "negative": "Your consonants were soft and mushy — words blurred together. The fix: Exaggerate your 'T' and 'K' sounds when practicing. Tap the tip of your tongue hard against the roof of your mouth for each 'T.'",
+    },
+    "slopeUV500-1500_sma3nz_amean": {
+        "positive": "Clear and crisp speech — your words had good bite and definition to them.",
+        "negative": "Your speech lacked crispness — it sounded dull and muffled, especially over video calls. The fix: Smile slightly while speaking — this naturally raises the front of your tongue and adds brightness and clarity to your voice.",
     },
     "spectralFluxV_sma3nz_stddevNorm": {
-        "positive": "Good expressive variation in voiced segments — your voice changed dynamically where it mattered most.",
-        "negative": "Limited expressive variation in voiced speech — your voice stayed too uniform across words. Let your voice shape each idea differently.",
+        "positive": "Good expressive variety — your voice shaped each idea differently, keeping the listener engaged.",
+        "negative": "Your voice stayed too uniform — every word sounded the same. The fix: Pick one word per sentence to emphasize differently — louder, slower, or higher pitch. Just one word changes the whole feel.",
     },
     "loudness_sma3_meanRisingSlope": {
-        "positive": "Strong vocal attack — your energy rises quickly when starting phrases, which sounds assertive and purposeful.",
-        "negative": "Weak vocal attack — your energy was slow to build at the start of phrases. Beginning phrases with slightly more energy makes you sound more confident.",
+        "positive": "Strong sentence starts — you hit each phrase with energy right from the first word. Sounds decisive.",
+        "negative": "You faded into sentences — the first few words were barely audible. Weak openings sound hesitant. The fix: Start every sentence with a small burst of energy. Don't idle into your point — accelerate into it.",
     },
     "loudness_sma3_stddevNorm": {
-        "positive": "Natural volume variation — your loudness varied in a healthy way that sounds expressive rather than flat.",
-        "negative": "Unusual volume variation pattern — either too flat or too erratic. Aim for natural speech rhythms where key words have slightly more energy.",
+        "positive": "Natural volume variation — your loudness rose and fell in ways that felt organic and engaging.",
+        "negative": "Your volume pattern was either dead-flat or erratic — neither sounds natural. The fix: Record yourself telling a friend a story. Notice how your volume naturally moves. Mirror that same energy in interview answers.",
     },
 }
 
@@ -174,8 +179,8 @@ FEATURE_TIPS = {
 def get_generic_tip(label: str, is_positive: bool) -> str:
     """Fallback tip for features not in FEATURE_TIPS."""
     if is_positive:
-        return f"Your {label.lower()} contributed positively to your confidence score — this is a vocal strength to maintain."
-    return f"Your {label.lower()} reduced your confidence score. Targeted vocal practice focusing on this dimension can improve future performance."
+        return f"Your {label.lower()} was a strength — keep doing what you're doing."
+    return f"Your {label.lower()} needs work. Record yourself practicing and listen back — awareness is the first step to improvement."
 
 
 # ============================================================
@@ -189,8 +194,8 @@ async def lifespan(app: FastAPI):
     try:
         print("Loading models and initializing tools...")
 
-        models['final_model'] = joblib.load("models/xgboost_final_engineered_45features.pkl")
-        models['top_features'] = joblib.load("models/top_45_features_engineered.pkl")
+        models['final_model'] = joblib.load("models/xgboost_fair_model.pkl")
+        models['top_features'] = joblib.load("models/top_features_fair.pkl")
         print(f"   XGBoost model loaded — {len(models['top_features'])} features")
 
         models['smile'] = opensmile.Smile(
@@ -352,6 +357,10 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
         contributors = []
         for i, feat_name in enumerate(models['top_features']):
             sv = float(shap_values[0][i])
+            # If the impact is less than 0.5% (0.005), skip this feature.
+            # This prevents the AI from giving advice on "noise."
+            if abs(sv) < 0.005:
+                continue
             fval = float(X.iloc[0, i])
             label = FEATURE_LABELS.get(feat_name, feat_name)
             direction = "positive" if sv > 0 else "negative"
@@ -391,8 +400,148 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
 
 
 # ============================================================
+# SHAP-DRIVEN CATEGORY SENTIMENTS
+# ============================================================
+SHAP_CATEGORIES = {
+    "fluency": {
+        "label": "Fluency",
+        "features": [
+            "voiced_flow",                          # #6
+            "vocal_instability",                    # #24
+            "shimmerLocaldB_sma3nz_stddevNorm",     # #17
+            "StddevUnvoicedSegmentLength",          # #22
+            "MeanVoicedSegmentLengthSec",           # #32
+        ],
+    },
+    "energy": {
+        "label": "Energy",
+        "features": [
+            "loudnessPeaksPerSec",                  # #1
+            "loudness_sma3_percentile20.0",         # #2
+            "loudness_dynamics_power",              # #4
+            "vocal_projection",                     # #5
+            "loudness_sma3_meanRisingSlope",        # #11
+            "loudness_sma3_stddevNorm",             # #9
+        ],
+    },
+    "clarity": {
+        "label": "Clarity",
+        "features": [
+            "F2bandwidth_sma3nz_stddevNorm",        # #8
+            "slopeUV500-1500_sma3nz_amean",         # #12
+            "HNRdBACF_sma3nz_amean",                # #13
+            "F2frequency_sma3nz_stddevNorm",        # #16
+            "alphaRatioUV_sma3nz_amean",            # #20
+        ],
+    },
+}
+
+
+def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
+    """
+    For each category, sum the SHAP contributions of its features,
+    determine status, and identify the single biggest driver with
+    its human-readable label and coaching tip.
+    Also adds a 4th 'pace' category based on WPM thresholds.
+    """
+    categories = {}
+    for key, cat in SHAP_CATEGORIES.items():
+        feat_shaps = {f: all_shap_values.get(f, 0.0) for f in cat["features"]}
+        shap_sum = sum(feat_shaps.values())
+
+        if shap_sum > 0.01:
+            status = "Good"
+        elif shap_sum < -0.01:
+            status = "Needs Improvement"
+        else:
+            status = "Neutral"
+
+        top_feat = max(feat_shaps, key=lambda f: abs(feat_shaps[f]))
+        top_sv = feat_shaps[top_feat]
+        label = FEATURE_LABELS.get(top_feat, top_feat)
+
+        if top_sv > 0:
+            direction = "positive"
+        elif top_sv < 0:
+            direction = "negative"
+        else:
+            direction = "neutral"
+
+        tip = FEATURE_TIPS.get(top_feat, {}).get(
+            direction if direction != "neutral" else "positive",
+            get_generic_tip(label, top_sv >= 0),
+        )
+
+        categories[key] = {
+            "label": cat["label"],
+            "status": status,
+            "shap_sum": round(shap_sum, 4),
+            "top_driver": {
+                "feature": top_feat,
+                "label": label,
+                "shap_value": round(top_sv, 4),
+                "direction": direction,
+                "tip": tip,
+            },
+        }
+    # --- 4th Box: Speaking Pace (WPM-based, not SHAP) ---
+    if wpm > 0:
+        if wpm < 110:
+            pace_status = "Needs Improvement"
+            pace_tip = f"You're speaking at {wpm:.0f} WPM. That's a bit slow. Aim for a brisker pace to keep the interviewer engaged."
+        elif wpm > 170:
+            pace_status = "Needs Improvement"
+            pace_tip = f"You're racing at {wpm:.0f} WPM! Slow down slightly and use pauses to let your key points sink in."
+        else:
+            pace_status = "Good"
+            pace_tip = f"Your pace of {wpm:.0f} WPM is perfect. You sound calm, professional, and easy to follow."
+
+        categories["pace"] = {
+            "label": "Speaking Pace",
+            "status": pace_status,
+            "wpm": round(wpm, 1),
+            "top_driver": {
+                "feature": "wpm",
+                "label": "Words Per Minute",
+                "shap_value": 0.0,
+                "direction": "neutral",
+                "tip": pace_tip,
+            },
+        }
+
+    # "Rule of One" — find the single most negative SHAP feature across ALL categories
+    worst_feat = None
+    worst_sv = 0.0
+    worst_category = None
+    for key, cat_data in categories.items():
+        driver = cat_data["top_driver"]
+        if driver["shap_value"] < worst_sv:
+            worst_sv = driver["shap_value"]
+            worst_feat = driver
+            worst_category = cat_data["label"]
+
+    primary_goal = None
+    if worst_feat and worst_sv < -0.005:
+        primary_goal = {
+            "feature": worst_feat["feature"],
+            "label": worst_feat["label"],
+            "category": worst_category,
+            "tip": worst_feat["tip"],
+        }
+
+    return {"categories": categories, "primary_goal": primary_goal}
+
+
+# ============================================================
 # PREDICTION PIPELINE
 # ============================================================
+MODEL_MIN = 0.2332
+MODEL_MAX = 0.6733
+
+def rescale_score(raw_score: float) -> float:
+    scaled = (raw_score - MODEL_MIN) / (MODEL_MAX - MODEL_MIN)
+    return max(0.0, min(1.0, scaled))
+
 def score_to_label(score: float) -> str:
     """Map 0-1 regression output to a text label (used in Gemini prompts and report)."""
     if score >= 0.75:
@@ -428,10 +577,12 @@ def predict_confidence(audio_path: str, transcript_text: str | None = None) -> d
 
     # 4 — predict (no scaler needed, XGBoost is scale-invariant)
     raw_score = float(models['final_model'].predict(X)[0])
-    confidence_score = float(np.clip(raw_score, 0.0, 1.0))
+    clipped_raw = float(np.clip(raw_score, 0.0, 1.0))
+    confidence_score = rescale_score(clipped_raw)
+    logger.info(f"Score rescaling: raw={clipped_raw:.4f} → rescaled={confidence_score:.4f}")
 
-    # 5 — SHAP explanations
-    shap_result = generate_shap_explanations(X, confidence_score)
+    # 5 — SHAP explanations (use raw score, not rescaled)
+    shap_result = generate_shap_explanations(X, clipped_raw)
 
     # 6 — WPM (display only)
     wpm = compute_wpm(audio_path, transcript_text)
@@ -519,6 +670,8 @@ async def process_voice_analysis(
                     for c in shap["top_contributors"]
                     if c.get("explanation")
                 ],
+                # SHAP-driven category sentiments for frontend UI boxes
+                "ui_sync": _build_category_sentiments(shap["all_shap_values"], prediction["wpm"]),
             },
 
             "status": "completed",

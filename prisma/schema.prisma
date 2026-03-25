@@ -24,12 +24,15 @@ model Interview {
 
 
   turns       InterviewTurn[] // The list of Q&A
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model InterviewTurn {
   id          Int      @id @default(autoincrement())
   interviewId String
-  interview   Interview @relation(fields: [interviewId], references: [id])
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   
   question    String
   answer      String
@@ -55,6 +58,8 @@ model InterviewTurn {
   voiceAnalysis   VoiceAnalysis?
 
   createdAt   DateTime @default(now())
+
+  @@index([interviewId])
 }
 
 model VoiceAnalysis {

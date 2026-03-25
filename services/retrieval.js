@@ -39,7 +39,7 @@ async function retrieveContext(question) {
 /**
  * 🤖 The Judge: LLM Evaluation
  */
-async function evaluateWithLLM(question, answer, contextString, jobDescription) {
+async function evaluateWithLLM(question, answer, contextString, jobDescription, difficulty = "Medium") {
   const prompt = `
     You are a Technical Interviewer evaluating a candidate.
 
@@ -52,6 +52,12 @@ async function evaluateWithLLM(question, answer, contextString, jobDescription) 
     - For MID roles: expect solid understanding with some practical depth. Correct answers with reasonable detail score 70-85.
     - For SENIOR roles: expect precise, detailed answers with real-world nuance, trade-offs, and edge cases for high scores (80-100).
     - Always grade relative to what is REASONABLE for the role level, not against an absolute expert standard.
+
+    ### QUESTION DIFFICULTY: ${difficulty}
+    Adjust your expectations based on difficulty vs. the role level above:
+    - If this is a HARD question for a JUNIOR role (stretch territory): a partial answer showing awareness is good (50-70). A correct but incomplete answer is strong (70-85). Don't expect full expert knowledge.
+    - If this is an EASY question for a SENIOR role: expect crisp, confident answers — vagueness on basics should score lower.
+    - If the difficulty matches the role level: use the standard calibration above.
 
     ### CONTEXT (Official Documentation):
     ${contextString.substring(0, 3000)}
@@ -96,7 +102,7 @@ async function evaluateWithLLM(question, answer, contextString, jobDescription) 
 /**
  * 🚀 Main Function
  */
-async function evaluateAnswer(question, userAnswer, jobDescription) {
+async function evaluateAnswer(question, userAnswer, jobDescription, difficulty = "Medium") {
   console.log("\n" + "=".repeat(60));
   console.log("🤖 HIRELY AI JUDGE");
   console.log("=".repeat(60));
@@ -163,6 +169,7 @@ async function evaluateAnswer(question, userAnswer, jobDescription) {
       userAnswer,
       contextString || "No context provided.",
       jobDescription,
+      difficulty,
     );
 
     if (!evaluation) throw new Error("AI Service Unavailable");
