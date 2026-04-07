@@ -75,6 +75,7 @@ async function evaluateWithLLM(question, answer, contextString, jobDescription, 
     4. If the answer meets the expected depth for the role level, SCORE = 70-85.
     5. If the answer exceeds expectations for the role level, SCORE = 85-100.
     6. IGNORE spelling mistakes. Focus on Concepts.
+    7. The candidate may answer in Roman Urdu (Urdu written in Latin script) mixed with English. This is normal code-switching — evaluate TECHNICAL CONTENT regardless of language. Roman Urdu words are NOT gibberish.
 
     ### OUTPUT FORMAT (JSON ONLY):
     {

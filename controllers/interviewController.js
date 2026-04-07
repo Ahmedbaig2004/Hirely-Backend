@@ -13,6 +13,7 @@ import { evaluateAnswer } from "../services/retrieval.js";
 import { analyzeDelivery } from "../services/deliveryAnalyzer.js";
 import { prisma } from "../config/db.js";
 import { generateAudio } from "../services/tts.js";
+import { translateIfNeeded, isRomanUrdu } from "../services/translator.js";
 import { Redis } from "@upstash/redis";
 import supabaseAdmin from "../config/supabaseAdmin.js";
 import dotenv from "dotenv";
@@ -113,11 +114,15 @@ export const submitAnswer = async (req, res) => {
 
     // 1. Transcription Logic + determine answer mode
     let answerMode = "chat";
+    let detectedLanguage = "en";
     if (req.file) {
-      answerText = await transcribeAudio(req.file.buffer);
+      const { transcript, language } = await transcribeAudio(req.file.buffer);
+      answerText = transcript;
+      detectedLanguage = language;
       answerMode = "audio";
     } else if (req.body.answer) {
       answerText = req.body.answer;
+      detectedLanguage = isRomanUrdu(answerText) ? "ur" : "en";
     } else {
       return res.status(400).json({ error: "No answer provided." });
     }
@@ -127,10 +132,20 @@ export const submitAnswer = async (req, res) => {
     const jobDescription = session?.jobDescription || "";
     const currentDifficulty = session?.currentQuestion?.difficulty || "Medium";
 
+    // 2.5. Translate Roman Urdu → English for evaluation (Urdu answers only)
+    // English answers are used directly; original Roman Urdu is kept for display/storage
+    let evaluationText = answerText;
+    if (detectedLanguage === "ur") {
+      const { translatedText } = await translateIfNeeded(answerText);
+      evaluationText = translatedText;
+    }
+
     // 3. Textual Evaluation + Delivery Analysis (in parallel)
+    // evaluateAnswer gets English text for accurate semantic scoring
+    // analyzeDelivery gets original text + language so it uses the right filler word list
     const [evaluation, deliveryAnalysis] = await Promise.all([
-      evaluateAnswer(question, answerText, jobDescription, currentDifficulty),
-      analyzeDelivery(answerText, question),
+      evaluateAnswer(question, evaluationText, jobDescription, currentDifficulty),
+      analyzeDelivery(answerText, question, detectedLanguage),
     ]);
 
     // 3. Save Turn to State (Redis)

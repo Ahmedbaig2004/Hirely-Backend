@@ -80,10 +80,16 @@ const DeliveryAnalysisSchema = z.object({
  * @param {string} question - The interview question that was asked
  * @returns {Promise<object>} Structured delivery analysis
  */
-export async function analyzeDelivery(transcript, question) {
+export async function analyzeDelivery(transcript, question, language = "en") {
   if (!transcript || transcript.trim().length < 10) {
     return null;
   }
+
+  const fillerInstructions = language === "ur"
+    ? `- The answer is in Roman Urdu (Urdu written in Latin script, mixed with English technical terms). Evaluate structure and relevance based on content meaning, not language choice.
+- Count these Urdu filler words: yani, matlab, woh (when used as filler), aisa, haan, bilkul (when used as filler not genuine emphasis).
+- Also count any English fillers that appear: um, uh, like (non-comparison), you know, basically, literally, sort of, kind of, I mean.`
+    : `- Count filler words carefully. Common fillers: um, uh, like (when not used as comparison), you know, basically, literally, sort of, kind of, I mean.`;
 
   const prompt = `You are an expert interview communication coach analyzing a candidate's answer delivery.
 
@@ -101,7 +107,7 @@ Scoring guide:
 - specificityScore: 90+ = uses concrete examples, names, numbers, specific technologies. 70-89 = some specifics mixed with generalities. Below 70 = mostly vague statements like "I have experience with that".
 
 Important:
-- Count filler words carefully in the transcript. Common fillers: um, uh, like (when not used as comparison), you know, basically, literally, sort of, kind of, I mean.
+${fillerInstructions}
 - Hedging phrases indicate lack of confidence: "I think maybe", "probably", "not sure but", "I guess", "sort of like".
 - Sentence restarts: "I worked on — well actually I was responsible for —" counts as 1 restart.
 - Be precise with counts — do not overcount or undercount.
