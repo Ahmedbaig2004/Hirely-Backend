@@ -36,43 +36,43 @@ models = {}
 # ============================================================
 FEATURE_LABELS = {
     # --- Energy / Volume ---
-    "loudnessPeaksPerSec":                        "Passion & Emphasis",
-    "loudness_sma3_percentile20.0":               "Quiet-Moment Volume",
+    "loudnessPeaksPerSec":                        "Energy & Emphasis",
+    "loudness_sma3_percentile20.0":               "Low-volume Clarity",
     "loudness_dynamics_power":                    "Dynamic Range",
-    "vocal_projection":                           "Room-Filling Power",
-    "loudness_sma3_meanRisingSlope":              "Starting Strength",
+    "vocal_projection":                           "Vocal Presence",
+    "loudness_sma3_meanRisingSlope":              "Sentence Energy",
     "loudness_sma3_stddevNorm":                   "Volume Variety",
     "loudness_sma3_pctlrange0-2":                 "Whisper-to-Shout Range",
     "loudness_sma3_meanFallingSlope":             "Sentence Endings",
     "loudness_sma3_stddevRisingSlope":            "Attack Variation",
     # --- Fluency / Steadiness ---
-    "voiced_flow":                                "Talking in Flow",
-    "vocal_instability":                          "Nervousness Meter",
+    "voiced_flow":                                "Speaking Flow",
+    "vocal_instability":                          "Voice Steadiness",
     "StddevUnvoicedSegmentLength":                "Pause Consistency",
     "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Wobble",
     "MeanVoicedSegmentLengthSec":                 "Phrase Length",
     # --- Clarity / Crispness ---
-    "HNRdBACF_sma3nz_amean":                      "Voice Smoothness",
+    "HNRdBACF_sma3nz_amean":                      "Voice Clarity",
     "alphaRatioUV_sma3nz_amean":                  "Consonant Crispness",
-    "slopeUV500-1500_sma3nz_amean":               "Speech Crispness",
+    "slopeUV500-1500_sma3nz_amean":               "Voice Brightness",
     "F2bandwidth_sma3nz_stddevNorm":              "Mouth Movement Consistency",
     "F3bandwidth_sma3nz_stddevNorm":              "Pronunciation Consistency",
     # --- Pitch / Intonation ---
-    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Movement",
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Variety",
     # --- Breath & Tension ---
     "logRelF0-H1-H2_sma3nz_stddevNorm":          "Breath Control Variation",
     # --- Expressiveness ---
     "spectralFluxV_sma3nz_stddevNorm":            "Expressive Variety",
     "hammarbergIndexUV_sma3nz_amean":             "Spectral Tilt",
     # --- Resonance ---
-    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Voice Richness Variety",
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Richness",
     "F3amplitudeLogRelF0_sma3nz_amean":           "Voice Richness",
-    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vowel Power Variety",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Resonance",
     "F2amplitudeLogRelF0_sma3nz_amean":           "Vowel Power",
     "F1amplitudeLogRelF0_sma3nz_stddevNorm":      "Resonance Variation",
     "F2frequency_sma3nz_stddevNorm":              "Vowel Clarity Range",
     "slopeV500-1500_sma3nz_amean":                "Voice Brightness",
-    "F3frequency_sma3nz_stddevNorm":              "Upper Resonance Movement",
+    "F3frequency_sma3nz_stddevNorm":              "Tone Consistency",
     # --- Voice Quality ---
     "mfcc1_sma3_stddevNorm":                      "Voice Texture Variety",
     "mfcc1V_sma3nz_stddevNorm":                   "Core Voice Variety",
@@ -87,7 +87,6 @@ FEATURE_LABELS = {
     "alphaRatioV_sma3nz_stddevNorm":              "Spectral Balance Variation",
     "slopeV0-500_sma3nz_stddevNorm":              "Low-Frequency Variation",
     "slopeV0-500_sma3nz_amean":                   "Voice Warmth",
-    "brightness_contrast":                        "Brightness vs Warmth Balance",
 }
 
 # ============================================================
@@ -98,82 +97,126 @@ FEATURE_LABELS = {
 # ============================================================
 FEATURE_TIPS = {
     "loudnessPeaksPerSec": {
-        "positive": "You punched the important words — that's how confident speakers highlight key points. Keep doing it.",
-        "negative": "Your voice stayed at one flat volume the entire time. Interviewers hear monotone as 'bored' or 'unsure.' The fix: Pick 3 key words in your next answer and say them 20% louder than everything else.",
-    },
-    "loudness_sma3_percentile20.0": {
-        "positive": "Even in your quieter moments, your voice stayed clearly audible — that projects steadiness and control.",
-        "negative": "When you paused to think, your volume dropped to a near-whisper. Trailing off signals uncertainty to interviewers. The fix: Take a belly breath before answering, and imagine someone is 3 meters away — never drop below 'conversation volume.'",
+        "positive": "Excellent! You naturally emphasized key words.",
+        "negative": "Your volume was quite flat. Easy daily practice: Pick any 3 important words and say them noticeably louder than the rest. Do this 5 times a day.",
     },
     "vocal_projection": {
-        "positive": "Your voice filled the room — you sounded present and authoritative without shouting.",
-        "negative": "Your voice sounded thin, like you were talking to yourself. Weak projection reads as low confidence. The fix: Sit up straight, breathe from your belly, and speak as if addressing someone across a conference table.",
-    },
-    "voiced_flow": {
-        "positive": "You spoke in smooth, connected sentences — no choppy fragments. That signals preparation and genuine fluency.",
-        "negative": "Your sentences kept breaking into short, choppy bursts — it sounds like you're making it up on the spot. The fix: Before answering, mentally outline 'First... then... finally...' and speak each chunk as one continuous breath.",
+        "positive": "Your voice carried well.",
+        "negative": "Your voice sounded a bit weak. Fix: Sit/stand tall, breathe from your belly, and speak as if the person is 3 meters away.",
     },
     "vocal_instability": {
-        "positive": "Your voice was rock-steady — no shaking or wavering. That projects composure under pressure.",
-        "negative": "Your voice had a slight shake or wobble — vocal tremor is the #1 thing interviewers subconsciously associate with nervousness. The fix: Before speaking, exhale slowly for 4 seconds through pursed lips. This physically calms the vocal cords.",
+        "positive": "Your voice was steady.",
+        "negative": "There was slight shakiness. Quick fix: Before speaking, exhale slowly through pursed lips for 5 seconds. Repeat 3–4 times.",
     },
     "loudness_dynamics_power": {
-        "positive": "Great dynamic range — you varied between quieter context and louder key points, keeping the listener engaged.",
-        "negative": "Your volume barely changed from start to finish — a flat delivery puts listeners on autopilot. The fix: Practice saying 'The MOST important thing is...' — whisper 'the most important thing is' then hit the key word with full volume.",
-    },
-    "HNRdBACF_sma3nz_amean": {
-        "positive": "Your voice sounded clean and smooth — no breathiness or roughness. Easy and pleasant to listen to.",
-        "negative": "Your voice sounded breathy or rough, like you were running out of air. A strained voice is harder to follow. The fix: Drink water beforehand, hum for 10 seconds to warm up your vocal cords, and support each sentence with a full breath.",
-    },
-    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
-        "positive": "Natural pitch movement — your voice rose and fell in conversational patterns that sound engaging and authentic.",
-        "negative": "Your pitch barely moved — every sentence sounded the same. Flat pitch = monotone = boring. The fix: Let your pitch rise when introducing a new point, and drop it firmly when concluding. Practice: 'What I learned was... (voice up) that testing matters. (voice down, firm).'",
-    },
-    "StddevUnvoicedSegmentLength": {
-        "positive": "Your pauses were consistent and purposeful — it sounded like structured thinking, not stumbling.",
-        "negative": "Your pauses were all over the place — some too short, some awkwardly long. Erratic pauses make you sound unsure. The fix: Use deliberate 1-second pauses between ideas. Count 'one-Mississippi' silently, then continue.",
-    },
-    "shimmerLocaldB_sma3nz_stddevNorm": {
-        "positive": "Steady volume control — your voice maintained consistent power across words, sounding composed.",
-        "negative": "Your volume wobbled unpredictably between words — this is perceived as nervousness. The fix: Practice sustaining 'ahhh' at one volume for 5 seconds, then count 'one... two... three...' keeping the same volume on each number.",
-    },
-    "loudness_sma3_pctlrange0-2": {
-        "positive": "Good whisper-to-shout range — you used a healthy spread of volume that kept your delivery dynamic.",
-        "negative": "You spoke at one volume the entire time with almost no range — no dynamic range = monotone delivery. The fix: Practice reading a paragraph where you deliberately start quiet, build to medium, and finish strong.",
-    },
-    "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
-        "positive": "Good voice richness variety — your voice had depth and liveliness that keeps listeners engaged.",
-        "negative": "Your voice sounded flat and thin — lacking richness. The fix: Open the back of your throat slightly, like the start of a yawn, while speaking. This adds natural warmth and depth to your voice.",
-    },
-    "F2amplitudeLogRelF0_sma3nz_amean": {
-        "positive": "Strong vowel projection — your vowels were well-formed and resonant, making you clearly intelligible.",
-        "negative": "Your vowels sounded weak and swallowed — words blurred together. The fix: Over-pronounce vowels when practicing: 'I wOrkEd On A prOjEct...' Exaggerate first, then dial it back 50% for the real interview.",
-    },
-    "F2bandwidth_sma3nz_stddevNorm": {
-        "positive": "Precise mouth movements — your articulation was consistent, producing clear and well-formed sounds.",
-        "negative": "Your articulation was inconsistent — some words clear, others mumbled. Sloppy articulation sounds unprepared. The fix: Practice tongue twisters for 30 seconds before the interview — 'Red lorry, yellow lorry' or 'Unique New York.' This wakes up your mouth muscles.",
-    },
-    "alphaRatioUV_sma3nz_amean": {
-        "positive": "Crisp consonants — your 'T's, 'S's, and 'K's were sharp and clear, making every word distinct.",
-        "negative": "Your consonants were soft and mushy — words blurred together. The fix: Exaggerate your 'T' and 'K' sounds when practicing. Tap the tip of your tongue hard against the roof of your mouth for each 'T.'",
-    },
-    "slopeUV500-1500_sma3nz_amean": {
-        "positive": "Clear and crisp speech — your words had good bite and definition to them.",
-        "negative": "Your speech lacked crispness — it sounded dull and muffled, especially over video calls. The fix: Smile slightly while speaking — this naturally raises the front of your tongue and adds brightness and clarity to your voice.",
-    },
-    "spectralFluxV_sma3nz_stddevNorm": {
-        "positive": "Good expressive variety — your voice shaped each idea differently, keeping the listener engaged.",
-        "negative": "Your voice stayed too uniform — every word sounded the same. The fix: Pick one word per sentence to emphasize differently — louder, slower, or higher pitch. Just one word changes the whole feel.",
+        "positive": "Good variation in volume.",
+        "negative": "Volume didn't change much. Practice: Say a sentence normally, then say the most important word much louder. Repeat 10 times.",
     },
     "loudness_sma3_meanRisingSlope": {
-        "positive": "Strong sentence starts — you hit each phrase with energy right from the first word. Sounds decisive.",
-        "negative": "You faded into sentences — the first few words were barely audible. Weak openings sound hesitant. The fix: Start every sentence with a small burst of energy. Don't idle into your point — accelerate into it.",
+        "positive": "You started sentences with good energy.",
+        "negative": "You tended to start sentences softly. Fix: Make the first 2–3 words of every sentence slightly stronger.",
+    },
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
+        "positive": "Natural pitch changes — sounded conversational.",
+        "negative": "Pitch was fairly flat. Easy practice: Let your voice go slightly higher when introducing a new idea.",
+    },
+    "voiced_flow": {
+        "positive": "Smooth speaking flow.",
+        "negative": "Sentences felt choppy. Fix: Think 'First... Then... Finally' before speaking and say each part in one breath.",
+    },
+    "loudness_sma3_percentile20.0": {
+        "positive": "Even your quiet moments were clear and audible.",
+        "negative": "Your quietest moments were a bit too soft to hear. Fix: Imagine you are speaking to someone at the back of the room, even when lowering your volume for effect.",
+    },
+    "slopeUV500-1500_sma3nz_amean": {
+        "positive": "Your voice sounds bright and energetic.",
+        "negative": "Your tone sounded a bit dull. Fix: Try 'smiling with your voice'—literally smiling slightly while you speak can brighten your vocal tone immediately.",
+    },
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
+        "positive": "Good vocal richness and depth.",
+        "negative": "Your voice sounded a bit thin and flat. Simple fix: Slightly open the back of your throat (like the start of a yawn) while speaking to add natural warmth.",
+    },
+    "F2amplitudeLogRelF0_sma3nz_amean": {
+        "positive": "Strong vowel projection.",
+        "negative": "Your vowels sounded a bit weak. Practice: Over-pronounce vowels like 'I wOrkEd On A prOjEct' for 30 seconds, then speak normally.",
+    },
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm": {
+        "positive": "Your voice has great resonance and clarity.",
+        "negative": "Your voice sounded a bit muffled. Practice speaking 'forward'—imagine your voice is hitting your front teeth rather than staying in your throat.",
+    },
+    "F3frequency_sma3nz_stddevNorm": {
+        "positive": "You maintained a very stable and professional tone.",
+        "negative": "Your tone shifted slightly during sentences. Focus on maintaining a steady breath until the end of your thought.",
+    },
+    "HNRdBACF_sma3nz_amean": {
+        "positive": "Your voice sounded clean and smooth — easy and pleasant to listen to.",
+        "negative": "Your voice sounded breathy or rough. Fix: Hum for 10 seconds to warm up your vocal cords, and support each sentence with a full breath.",
+    },
+    "StddevUnvoicedSegmentLength": {
+        "positive": "Your pauses were consistent and purposeful — structured thinking, not stumbling.",
+        "negative": "Your pauses were erratic — some too short, some awkwardly long. Fix: Use deliberate 1-second pauses between ideas.",
+    },
+    "shimmerLocaldB_sma3nz_stddevNorm": {
+        "positive": "Steady volume control — composed and consistent.",
+        "negative": "Your volume wobbled unpredictably between words. Fix: Practice sustaining 'ahhh' at one volume for 5 seconds.",
+    },
+    "loudness_sma3_pctlrange0-2": {
+        "positive": "Good whisper-to-shout range — dynamic and engaging delivery.",
+        "negative": "You spoke at one volume with almost no range. Fix: Practice reading a paragraph starting quiet, building to medium, finishing strong.",
+    },
+    "F2bandwidth_sma3nz_stddevNorm": {
+        "positive": "Precise mouth movements — clear and well-formed sounds.",
+        "negative": "Articulation was inconsistent — some words clear, others mumbled. Fix: Practice tongue twisters for 30 seconds before the interview.",
+    },
+    "alphaRatioUV_sma3nz_amean": {
+        "positive": "Crisp consonants — sharp and clear, making every word distinct.",
+        "negative": "Consonants were soft and mushy — words blurred together. Fix: Exaggerate your 'T' and 'K' sounds when practicing.",
+    },
+    "spectralFluxV_sma3nz_stddevNorm": {
+        "positive": "Good expressive variety — your voice shaped each idea differently.",
+        "negative": "Your voice stayed too uniform. Fix: Pick one word per sentence to emphasize differently — louder, slower, or higher pitch.",
     },
     "loudness_sma3_stddevNorm": {
-        "positive": "Natural volume variation — your loudness rose and fell in ways that felt organic and engaging.",
-        "negative": "Your volume pattern was either dead-flat or erratic — neither sounds natural. The fix: Record yourself telling a friend a story. Notice how your volume naturally moves. Mirror that same energy in interview answers.",
+        "positive": "Natural volume variation — organic and engaging.",
+        "negative": "Volume pattern was flat or erratic. Fix: Record yourself telling a story and mirror that natural energy in interview answers.",
     },
 }
+
+
+def generate_final_summary(score: float, neg_features: list, pos_features: list) -> dict:
+    """
+    Generate a score-based coaching summary from the top negative/positive SHAP features.
+    Returns a dict for inclusion in the result payload.
+    """
+    if score > 0.6:
+        opening = "You have a very strong vocal presence! You sound ready for a high-level pitch."
+    elif score > 0.45:
+        opening = "Good solid performance. You sound professional and capable."
+    else:
+        opening = "A great start! With a few vocal tweaks, you can really boost your impact."
+
+    focus_note = None
+    best_trait = None
+
+    if neg_features:
+        main_fix_label = FEATURE_LABELS.get(neg_features[0]["feature"], "vocal habits")
+        focus_note = (
+            f"Don't worry too much about the {main_fix_label.lower()} right now. "
+            "Everyone's voice has natural 'fingerprints' that show up under AI analysis."
+        )
+        if pos_features:
+            best_trait_label = FEATURE_LABELS.get(pos_features[0]["feature"], "strengths")
+            best_trait = f"Focus on leaning into your {best_trait_label.upper()}, which is already working well."
+
+    return {
+        "opening": opening,
+        "focus_note": focus_note,
+        "best_trait": best_trait,
+        "reminder": (
+            "This is a simulation. The best interviewers look for your passion and skills — "
+            "this AI is just here to help you polish the delivery!"
+        ),
+    }
 
 
 def get_generic_tip(label: str, is_positive: bool) -> str:
@@ -295,11 +338,6 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
             df['loudness_sma3_amean'] / (df['F0semitoneFrom27.5Hz_sma3nz_stddevNorm'] + 0.05)
         )
 
-    if all(c in cols for c in ['F1frequency_sma3nz_amean', 'F2frequency_sma3nz_amean']):
-        df['resonance_ratio'] = (
-            df['F2frequency_sma3nz_amean'] / (df['F1frequency_sma3nz_amean'] + 1e-4)
-        )
-
     if all(c in cols for c in ['HNRdBACF_sma3nz_amean', 'alphaRatioV_sma3nz_amean']):
         df['voice_quality'] = df['HNRdBACF_sma3nz_amean'] - df['alphaRatioV_sma3nz_amean']
 
@@ -311,11 +349,6 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     if all(c in cols for c in ['VoicedSegmentsPerSec', 'MeanVoicedSegmentLengthSec']):
         df['voiced_flow'] = (
             df['VoicedSegmentsPerSec'] * df['MeanVoicedSegmentLengthSec']
-        )
-
-    if all(c in cols for c in ['slopeV0-500_sma3nz_amean', 'slopeV500-1500_sma3nz_amean']):
-        df['brightness_contrast'] = (
-            df['slopeV500-1500_sma3nz_amean'] - df['slopeV0-500_sma3nz_amean']
         )
 
     return df
@@ -359,7 +392,7 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
             sv = float(shap_values[0][i])
             # If the impact is less than 0.5% (0.005), skip this feature.
             # This prevents the AI from giving advice on "noise."
-            if abs(sv) < 0.005:
+            if abs(sv) < 0.008:
                 continue
             fval = float(X.iloc[0, i])
             label = FEATURE_LABELS.get(feat_name, feat_name)
@@ -379,10 +412,17 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
 
         contributors.sort(key=lambda x: x["impact_magnitude"], reverse=True)
 
+        # Split into top 3 improvements (negative SHAP) + top 2 strengths (positive SHAP)
+        significant_neg = [c for c in contributors if c["direction"] == "decreased"][:3]
+        significant_pos = [c for c in contributors if c["direction"] == "increased"][:2]
+        top_contributors = significant_neg + significant_pos
+
         return {
             "base_value": round(base_value, 4),
             "predicted_value": round(predicted_score, 4),
-            "top_contributors": contributors[:5],
+            "top_contributors": top_contributors,
+            "top_improvements": significant_neg,
+            "top_strengths": significant_pos,
             "all_shap_values": {
                 feat_name: round(float(shap_values[0][i]), 4)
                 for i, feat_name in enumerate(models['top_features'])
@@ -672,6 +712,12 @@ async def process_voice_analysis(
                 ],
                 # SHAP-driven category sentiments for frontend UI boxes
                 "ui_sync": _build_category_sentiments(shap["all_shap_values"], prediction["wpm"]),
+                # Coaching summary for report
+                "finalSummary": generate_final_summary(
+                    prediction["confidence_score"],
+                    shap.get("top_improvements", []),
+                    shap.get("top_strengths", []),
+                ),
             },
 
             "status": "completed",
