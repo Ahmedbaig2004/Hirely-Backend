@@ -140,22 +140,27 @@ export const submitAnswer = async (req, res) => {
       evaluationText = translatedText;
     }
 
-    // 3. Textual Evaluation + Delivery Analysis (in parallel)
-    // evaluateAnswer gets English text for accurate semantic scoring
-    // analyzeDelivery gets original text + language so it uses the right filler word list
-    const [evaluation, deliveryAnalysis] = await Promise.all([
-      evaluateAnswer(question, evaluationText, jobDescription, currentDifficulty),
-      analyzeDelivery(answerText, question, detectedLanguage),
-    ]);
+    // 3. Generate Next Question only — evaluation and delivery analysis are deferred to
+    // finalization where all turns are scored in parallel (no per-turn LLM grading here).
+    // getNextQuestion reads the raw transcript directly so no score is needed.
+    // Trigger parallel generation when queue has ≤1 item: after saveTurn shifts the queue,
+    // it will be empty, and parallelNextQ will be ready instead of blocking on a fallback call.
+    const nextQuestionNeeded =
+      !session.questionQueue || session.questionQueue.length <= 1;
+    const parallelNextQ = nextQuestionNeeded
+      ? await getNextQuestion(session, { question, answer: answerText })
+      : null;
 
-    // 3. Save Turn to State (Redis)
+    // 4. Save Turn to State (Redis) — score/feedback null until finalization
     const updatedSession = await stateManager.saveTurn(
       sessionId,
       question,
       answerText,
-      evaluation,
+      null,        // evaluation deferred
       answerMode,
-      deliveryAnalysis,
+      null,        // deliveryAnalysis deferred
+      evaluationText,
+      detectedLanguage,
     );
 
     // 4. TRIGGER VOICE ANALYSIS (Background Task)
@@ -196,20 +201,20 @@ export const submitAnswer = async (req, res) => {
         "🏁 Interview Finished. Returning to frontend for voice analysis polling...",
       );
       return res.json({
-        evaluation,
-        deliveryAnalysis,
         isFinished: true,
         transcript: answerText,
       });
     }
 
     // 6. NEXT QUESTION & TTS LOGIC
+    // Use pre-generated queue first, then the parallel-generated question.
     const queue = updatedSession.questionQueue;
     let nextQ =
       queue && queue.length > 0
         ? queue[0]
-        : await getNextQuestion(updatedSession);
-    await stateManager.updateCurrentQuestion(sessionId, nextQ);
+        : parallelNextQ ?? (await getNextQuestion(updatedSession));
+    // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
+    await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
     let audioBase64 = null;
     if (process.env.ENABLE_TTS === "true" && nextQ?.question) {
@@ -222,8 +227,6 @@ export const submitAnswer = async (req, res) => {
     }
 
     return res.json({
-      evaluation,
-      deliveryAnalysis,
       isFinished: false,
       nextQuestion: nextQ,
       transcript: answerText,
@@ -305,25 +308,25 @@ export const finalizeInterview = async (req, res) => {
     }
 
     // 2. Wait for voice analyses to complete (only for audio turns)
+    // All keys checked in parallel per attempt; max wait reduced to 10s.
     const audioTurnIndices = session.history
       .map((turn, idx) => (turn.answerMode === "audio" ? idx + 1 : null))
       .filter((idx) => idx !== null);
 
     if (audioTurnIndices.length > 0) {
-      const MAX_RETRIES = 20;
-      const RETRY_DELAY_MS = 1500;
+      const MAX_RETRIES = 10;
+      const RETRY_DELAY_MS = 1000;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        let done = 0;
-        for (const turnIdx of audioTurnIndices) {
-          const data = await redisClient.get(
-            `voice_analysis:${sessionId}:${turnIdx}`,
-          );
-          if (data) {
-            const parsed = typeof data === "string" ? JSON.parse(data) : data;
-            if (parsed.status === "completed" || parsed.status === "failed")
-              done++;
-          }
-        }
+        const checks = await Promise.all(
+          audioTurnIndices.map((turnIdx) =>
+            redisClient.get(`voice_analysis:${sessionId}:${turnIdx}`),
+          ),
+        );
+        const done = checks.filter((data) => {
+          if (!data) return false;
+          const parsed = typeof data === "string" ? JSON.parse(data) : data;
+          return parsed.status === "completed" || parsed.status === "failed";
+        }).length;
         if (done >= audioTurnIndices.length) break;
         console.log(
           `⏳ Finalize: Voice analysis ${done}/${audioTurnIndices.length} complete, waiting...`,
@@ -332,31 +335,59 @@ export const finalizeInterview = async (req, res) => {
       }
     }
 
-    // 3. Enrich history with voice data from Redis
-    const enrichedHistory = await Promise.all(
-      session.history.map(async (turn, index) => {
-        const turnNumber = index + 1;
-        const rawVoiceData = await redisClient.get(
-          `voice_analysis:${sessionId}:${turnNumber}`,
-        );
-        let voiceAnalysis = null;
-        if (rawVoiceData) {
-          voiceAnalysis =
-            typeof rawVoiceData === "string"
-              ? JSON.parse(rawVoiceData)
-              : rawVoiceData;
-        }
-        return { ...turn, voiceAnalysis };
-      }),
-    );
+    // 3. Evaluate all turns in parallel (deferred from interview hot path)
+    // Each turn stored evaluationText (translated if Urdu) and detectedLanguage for this step.
+    console.log(`⚖️  Evaluating ${session.history.length} turns in parallel...`);
+    const [evaluations, deliveryAnalyses] = await Promise.all([
+      Promise.all(
+        session.history.map((turn) =>
+          evaluateAnswer(
+            turn.question,
+            turn.evaluationText || turn.answer,
+            session.jobDescription,
+            turn.difficulty || "Medium",
+          ),
+        ),
+      ),
+      Promise.all(
+        session.history.map((turn) =>
+          analyzeDelivery(
+            turn.answer,
+            turn.question,
+            turn.detectedLanguage || "en",
+          ),
+        ),
+      ),
+    ]);
 
-    // 4. Generate the AI Final Report
-    const finalReport = await generateFinalReport(
-      sessionId,
-      enrichedHistory,
-      session.jobDescription,
-      session.gapAnalysis,
+    // Merge evaluation results back into history
+    const scoredHistory = session.history.map((turn, idx) => ({
+      ...turn,
+      score: evaluations[idx]?.score ?? 0,
+      feedback: evaluations[idx]?.feedback ?? "",
+      betterAnswer: evaluations[idx]?.betterAnswer ?? null,
+      deliveryAnalysis: deliveryAnalyses[idx] ?? null,
+    }));
+
+    // 4. Enrich scored history with voice data from Redis (batch fetch — one roundtrip)
+    const voiceKeys = scoredHistory.map((_, index) =>
+      `voice_analysis:${sessionId}:${index + 1}`,
     );
+    const voiceDataRaw = await Promise.all(
+      voiceKeys.map((key) => redisClient.get(key)),
+    );
+    const enrichedHistory = scoredHistory.map((turn, index) => {
+      const raw = voiceDataRaw[index];
+      const voiceAnalysis = raw
+        ? (typeof raw === "string" ? JSON.parse(raw) : raw)
+        : null;
+      return { ...turn, voiceAnalysis };
+    });
+
+    // Pre-extract non-null voice records for generateFinalReport to avoid a duplicate Redis read
+    const prefetchedVoiceData = enrichedHistory
+      .map((turn) => turn.voiceAnalysis)
+      .filter((v) => v !== null);
 
     const totalScore = enrichedHistory.reduce(
       (sum, turn) => sum + (turn.score ?? 0),
@@ -364,37 +395,55 @@ export const finalizeInterview = async (req, res) => {
     );
     const averageScore = Math.round(totalScore / enrichedHistory.length);
 
-    // 5. Upload audio files to Supabase Storage
-    const audioUrls = {};
+    // 5+6. Generate AI report and upload audio files in parallel (no dependency between them)
     console.log(
       `☁️  Uploading ${enrichedHistory.length} audio files to Supabase Storage...`,
     );
-    for (let i = 1; i <= enrichedHistory.length; i++) {
-      const localPath = path.join(uploadDir, `turn_${i}.wav`);
-      if (fs.existsSync(localPath)) {
-        try {
-          const buffer = fs.readFileSync(localPath);
-          const storagePath = `${session.userId}/${sessionId}/turn_${i}.webm`;
-          const { error } = await supabaseAdmin.storage
-            .from("interview-audios")
-            .upload(storagePath, buffer, {
-              contentType: "audio/webm",
-              upsert: false,
-            });
-          if (!error) {
-            const { data } = supabaseAdmin.storage
-              .from("interview-audios")
-              .getPublicUrl(storagePath);
-            audioUrls[i] = data.publicUrl;
-            console.log(`  ✅ Turn ${i} uploaded`);
-          } else {
-            console.warn(`  ⚠️ Turn ${i} upload failed:`, error.message);
-          }
-        } catch (uploadErr) {
-          console.warn(`  ⚠️ Turn ${i} upload error:`, uploadErr.message);
-        }
-      }
-    }
+    const [finalReport, audioUrls] = await Promise.all([
+      generateFinalReport(
+        sessionId,
+        enrichedHistory,
+        session.jobDescription,
+        session.gapAnalysis,
+        prefetchedVoiceData,
+      ),
+      (async () => {
+        const urls = {};
+        await Promise.all(
+          Array.from({ length: enrichedHistory.length }, (_, i) => i + 1).map(
+            async (i) => {
+              const localPath = path.join(uploadDir, `turn_${i}.wav`);
+              if (!fs.existsSync(localPath)) return;
+              try {
+                const buffer = fs.readFileSync(localPath);
+                const storagePath = `${session.userId}/${sessionId}/turn_${i}.webm`;
+                const { error } = await supabaseAdmin.storage
+                  .from("interview-audios")
+                  .upload(storagePath, buffer, {
+                    contentType: "audio/webm",
+                    upsert: false,
+                  });
+                if (!error) {
+                  const { data } = supabaseAdmin.storage
+                    .from("interview-audios")
+                    .getPublicUrl(storagePath);
+                  urls[i] = data.publicUrl;
+                  console.log(`  ✅ Turn ${i} uploaded`);
+                } else {
+                  console.warn(`  ⚠️ Turn ${i} upload failed:`, error.message);
+                }
+              } catch (uploadErr) {
+                console.warn(
+                  `  ⚠️ Turn ${i} upload error:`,
+                  uploadErr.message,
+                );
+              }
+            },
+          ),
+        );
+        return urls;
+      })(),
+    ]);
 
     // 6. Persist to PostgreSQL via Prisma
     await prisma.interview.create({

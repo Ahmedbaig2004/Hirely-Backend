@@ -121,8 +121,13 @@ Rules:
 
 /**
  * Adaptive Questioning Logic
+ *
+ * @param {object} session - Current Redis session
+ * @param {object} [currentTurn] - The turn being answered right now { question, answer }.
+ *   When provided, question generation runs in parallel with evaluation — Gemini reads
+ *   the raw transcript directly instead of waiting for a numeric score.
  */
-export async function getNextQuestion(session) {
+export async function getNextQuestion(session, currentTurn = null) {
   if (session.questionQueue && session.questionQueue.length > 0) {
     return session.questionQueue[0];
   }
@@ -135,28 +140,38 @@ export async function getNextQuestion(session) {
     .join("\n---\n");
 
   const lastTurn = session.history[session.history.length - 1];
-  const lastScore = lastTurn?.score ?? 50;
   const lastDifficulty = lastTurn?.difficulty || "Medium";
+
+  // When currentTurn is provided we skip the numeric score and let Gemini judge
+  // difficulty from the transcript itself — enabling parallel execution with eval.
+  const currentTurnSection = currentTurn
+    ? `CURRENT QUESTION (just answered — transcript below, not yet scored):
+Q: ${currentTurn.question}
+A: ${currentTurn.answer}
+Difficulty so far: ${lastDifficulty}
+
+Judge the quality of this answer yourself from the transcript to decide whether to increase, decrease, or maintain difficulty.`
+    : `LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastTurn?.score ?? 50}/100.`;
 
   const prompt = `
     You are a Dynamic Technical Interviewer.
     JOB CONTEXT: ${session.jobDescription.substring(0, 500)}...
 
-    INTERVIEW HISTORY:
-    ${historyText}
+    INTERVIEW HISTORY (previous turns, scored):
+    ${historyText || "(No previous turns yet)"}
 
-    LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastScore}/100.
+    ${currentTurnSection}
 
     ADAPTIVE DIFFICULTY RULES:
     - First, identify the role's seniority level from the job context (Junior, Mid, Senior).
-    - Score >= 75 on the last question: you MAY increase difficulty by ONE level (Easy→Medium, Medium→Hard). Never jump two levels.
-    - Score < 50 on the last question: DECREASE difficulty by one level or stay the same. Do NOT keep asking Hard questions after a poor score.
-    - JUNIOR roles: never go above Medium difficulty unless the candidate scored >= 80 on a Medium question. Hard questions are stretch territory — use sparingly.
-    - MID roles: default range is Medium. Only go to Hard if they scored >= 75 on a Medium question.
+    - Strong answer (clear, correct, detailed): you MAY increase difficulty by ONE level (Easy→Medium, Medium→Hard). Never jump two levels.
+    - Weak answer (vague, incorrect, "I don't know"): DECREASE difficulty or stay the same. Do NOT keep asking Hard questions after a poor answer.
+    - JUNIOR roles: never go above Medium unless the candidate gave a clearly excellent answer to a Medium question.
+    - MID roles: default range is Medium. Only go to Hard for clearly excellent answers.
     - SENIOR roles: default range is Medium-Hard. Easy is only for warm-up.
     - Always set the "difficulty" field to exactly one of: "Easy", "Medium", or "Hard".
 
-    TASK: Generate the NEXT follow-up question. Follow the difficulty rules above strictly.
+    TASK: Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.
   `;
 
   const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
@@ -165,12 +180,15 @@ export async function getNextQuestion(session) {
 
 /**
  * Final Report Generation with Integrated Voice Insights
+ * @param {string[]} prefetchedVoiceData - Optional raw voice data already fetched from Redis.
+ *   When provided, skips a redundant Redis read inside this function.
  */
 export async function generateFinalReport(
   sessionId,
   history,
   jobDescription,
   gapAnalysis,
+  prefetchedVoiceData = null,
 ) {
   // 1. Calculate Technical Score (difficulty-adjusted)
   // Detect role seniority from job description
@@ -224,14 +242,20 @@ export async function generateFinalReport(
       : null;
 
   // 2. Fetch interpreted Voice Data
+  // If pre-fetched data is provided (from the controller), use it directly to avoid
+  // a duplicate Redis read. Otherwise fall back to fetching from Redis.
   let voiceAnalyses = [];
   try {
-    console.log(`⏳ Extracting vocal insights for: ${sessionId}`);
-    // This now returns objects containing .insights and .metrics thanks to your helper update
-    voiceAnalyses = await getVoiceAnalysesForInterview(
-      sessionId,
-      history.length,
-    );
+    if (prefetchedVoiceData !== null) {
+      console.log(`⏳ Using pre-fetched voice data for: ${sessionId}`);
+      voiceAnalyses = prefetchedVoiceData;
+    } else {
+      console.log(`⏳ Extracting vocal insights for: ${sessionId}`);
+      voiceAnalyses = await getVoiceAnalysesForInterview(
+        sessionId,
+        history.length,
+      );
+    }
   } catch (e) {
     console.warn("⚠️ Voice analysis retrieval failed:", e.message);
   }

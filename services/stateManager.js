@@ -21,8 +21,7 @@ export const stateManager = {
       createdAt: new Date().toISOString(),
     };
 
-    await client.set(`interview:${sessionId}`, sessionData);
-    await client.expire(`interview:${sessionId}`, 86400);
+    await client.set(`interview:${sessionId}`, sessionData, { ex: 86400 });
   },
 
   async deleteSession(sessionId) {
@@ -35,8 +34,9 @@ export const stateManager = {
   },
 
   // 2. Update Current Question (Call this when generating Next Question)
-  async updateCurrentQuestion(sessionId, nextQuestionObj) {
-    const session = await client.get(`interview:${sessionId}`);
+  // Pass existingSession to skip the Redis GET when you already have the session in memory.
+  async updateCurrentQuestion(sessionId, nextQuestionObj, existingSession = null) {
+    const session = existingSession || await client.get(`interview:${sessionId}`);
     if (!session) return;
 
     session.currentQuestion = nextQuestionObj;
@@ -45,7 +45,10 @@ export const stateManager = {
   },
 
   // 3. Save Turn
-  async saveTurn(sessionId, question, answer, evaluation, answerMode = "audio", deliveryAnalysis = null) {
+  // evaluation and deliveryAnalysis are null during live interview (deferred to finalization).
+  // evaluationText is the translated version (for Urdu answers) used for scoring.
+  // detectedLanguage is stored so finalization can use the right filler word list.
+  async saveTurn(sessionId, question, answer, evaluation, answerMode = "audio", deliveryAnalysis = null, evaluationText = null, detectedLanguage = "en") {
     const session = await client.get(`interview:${sessionId}`);
     if (!session) return null;
 
@@ -55,13 +58,18 @@ export const stateManager = {
     session.history.push({
       question,
       answer,
-      score: evaluation.score,
-      betterAnswer: evaluation.betterAnswer,
-      feedback: evaluation.feedback,
+      // Deferred scoring: score/feedback/betterAnswer are null during interview,
+      // populated at finalization when all turns are evaluated in parallel.
+      score: evaluation?.score ?? null,
+      betterAnswer: evaluation?.betterAnswer ?? null,
+      feedback: evaluation?.feedback ?? null,
       topic,
       difficulty,
       answerMode,
       deliveryAnalysis,
+      // Store for deferred evaluation at finalization
+      evaluationText: evaluationText ?? answer,
+      detectedLanguage,
       timestamp: new Date().toISOString(),
     });
 

@@ -19,16 +19,17 @@ const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
 /**
  * 🔍 Retrieve Context
+ * Accepts an optional pre-computed qVector to avoid a duplicate embedding call.
  */
-async function retrieveContext(question) {
-  const qVector = await embeddings.embedQuery(question);
+async function retrieveContext(question, existingQVector = null) {
+  const qVector = existingQVector || await embeddings.embedQuery(question);
   const vectorString = `[${qVector.join(",")}]`;
 
   // Get Top 3 chunks
   const results = await prisma.$queryRawUnsafe(
-    `SELECT content, metadata 
-     FROM "Document" 
-     ORDER BY embedding <=> $1::vector ASC 
+    `SELECT content, metadata
+     FROM "Document"
+     ORDER BY embedding <=> $1::vector ASC
      LIMIT 3`,
     vectorString,
   );
@@ -111,7 +112,7 @@ async function evaluateAnswer(question, userAnswer, jobDescription, difficulty =
   console.log(`🗣️  A: ${userAnswer}`);
 
   try {
-    // 1. Calculate Similarity
+    // 1. Embed question + answer in parallel
     console.log("\n📊 Calculating Semantic Similarity...");
     const [qVector, aVector] = await Promise.all([
       embeddings.embedQuery(question),
@@ -121,7 +122,6 @@ async function evaluateAnswer(question, userAnswer, jobDescription, difficulty =
     const rawSimilarity = similarity(qVector, aVector) || 0;
     const similarityPercent = (rawSimilarity * 100).toFixed(1);
 
-    // CHANGE 3: Uncommented this so you can debug!
     console.log(`   👉 Similarity Score: ${similarityPercent}%`);
 
     // 2. Gatekeeper
@@ -142,9 +142,9 @@ async function evaluateAnswer(question, userAnswer, jobDescription, difficulty =
 
     console.log("   ✅ Passed Threshold (>30%).");
 
-    // 3. Retrieve Context
+    // 3. Retrieve Context — reuse qVector already computed above (no duplicate embed call)
     console.log("\n📚 Retrieving Official Documentation...");
-    const contextDocs = await retrieveContext(question);
+    const contextDocs = await retrieveContext(question, qVector);
 
     if (!contextDocs || contextDocs.length === 0) {
       console.warn("   ⚠️ No context found in DB.");
@@ -180,8 +180,6 @@ async function evaluateAnswer(question, userAnswer, jobDescription, difficulty =
   } catch (error) {
     console.error("❌ Evaluation Error:", error.message);
     return { error: "System Error" };
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
