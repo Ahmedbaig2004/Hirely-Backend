@@ -14,7 +14,8 @@ export const stateManager = {
       jobDescription: data.jobDescription,
       questionQueue: data.initialQuestions,
       gapAnalysis: data.gapAnalysis,
-      userId: data.userId, 
+      userId: data.userId,
+      interviewerVoice: data.interviewerVoice || "female",
       // ✅ TRACK CURRENT QUESTION (Initialize with the first one)
       currentQuestion: data.initialQuestions[0],
       history: [],

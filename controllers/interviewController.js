@@ -69,21 +69,28 @@ export const initInterview = async (req, res) => {
 
     const sessionId = uuidv4();
     const firstQuestion = analysis.questions[0];
+    const interviewerVoice =
+      req.body.interviewerVoice === "male" ? "male" : "female";
 
     await stateManager.initSession(sessionId, {
       jobDescription: req.body.jobDescription,
       initialQuestions: analysis.questions,
       gapAnalysis: analysis.gapAnalysis,
       userId: userId || "anonymous",
+      interviewerVoice,
     });
 
     await stateManager.updateCurrentQuestion(sessionId, firstQuestion);
 
     let audioBase64 = null;
+    let audioMime = null;
     if (process.env.ENABLE_TTS === "true") {
       try {
-        const audioBuffer = await generateAudio(firstQuestion.question);
-        if (audioBuffer) audioBase64 = audioBuffer.toString("base64");
+        const result = await generateAudio(firstQuestion.question, interviewerVoice);
+        if (result) {
+          audioBase64 = result.buffer.toString("base64");
+          audioMime = result.mime;
+        }
       } catch (e) {
         console.error("TTS Init Error:", e);
       }
@@ -94,6 +101,7 @@ export const initInterview = async (req, res) => {
       analysis,
       firstQuestion,
       audio: audioBase64,
+      audioMime,
     });
   } catch (e) {
     console.error("Init Error:", e);
@@ -216,11 +224,16 @@ export const submitAnswer = async (req, res) => {
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
+    const interviewerVoice = session.interviewerVoice || "female";
     let audioBase64 = null;
+    let audioMime = null;
     if (process.env.ENABLE_TTS === "true" && nextQ?.question) {
       try {
-        const audioBuffer = await generateAudio(nextQ.question);
-        if (audioBuffer) audioBase64 = audioBuffer.toString("base64");
+        const result = await generateAudio(nextQ.question, interviewerVoice);
+        if (result) {
+          audioBase64 = result.buffer.toString("base64");
+          audioMime = result.mime;
+        }
       } catch (e) {
         console.error("TTS Error:", e);
       }
@@ -231,6 +244,7 @@ export const submitAnswer = async (req, res) => {
       nextQuestion: nextQ,
       transcript: answerText,
       audio: audioBase64,
+      audioMime,
     });
   } catch (error) {
     console.error("Submit Error:", error);
