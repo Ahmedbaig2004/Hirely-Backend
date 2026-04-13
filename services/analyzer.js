@@ -47,6 +47,18 @@ const AnalysisSchema = z.object({
     .describe("Exactly 4 interview questions"), // Matched with prompt below
 });
 
+// Shared question-only schema for Technical / Behavioral modes
+const QuestionsOnlySchema = z.object({
+  questions: z.array(
+    z.object({
+      question: z.string(),
+      topic: z.string(),
+      difficulty: z.string(),
+      reason: z.string().describe("Why this question was chosen"),
+    })
+  ).describe("Interview questions"),
+});
+
 // 3. Resume Validation
 async function validateResumeContent(text) {
   const check = await llm.invoke(
@@ -158,4 +170,81 @@ TASK INSTRUCTIONS:
   `;
 
   return await structuredLlm.invoke(prompt);
+}
+
+/**
+ * Generate questions for a Technical/Module-Based interview.
+ * No resume or JD required — driven purely by stack + difficulty + count.
+ */
+export async function generateTechnicalQuestions(stack, difficulty, count) {
+  console.log(`🤖 Generating ${count} ${difficulty} technical questions for ${stack}...`);
+  const structuredLlm = llm.withStructuredOutput(QuestionsOnlySchema);
+
+  const prompt = `
+You are a senior engineering interviewer conducting a ${difficulty}-level technical interview focused on ${stack}.
+
+Generate exactly ${count} interview questions following these rules:
+
+1. Question 1 MUST be a warm-up intro: "Tell me about yourself and your experience with ${stack}."
+   - topic: "Introduction", difficulty: "Easy", reason: "Warm-up and background"
+
+2. Questions 2 through ${count}: technical questions covering the core ${stack} curriculum.
+   - All set to difficulty: "${difficulty}"
+   - Cover fundamentals, common patterns, gotchas, and real-world problem-solving for ${stack}
+   - Progress from core concepts → applied/practical scenarios
+   - Be conversational — use natural filler phrases ("Okay, moving on", "Great question for us to explore")
+   - Do NOT repeat topics across questions
+   - Do NOT say "final question" on the last question
+
+Return exactly ${count} questions in the schema.
+`;
+
+  const result = await structuredLlm.invoke(prompt);
+  return result.questions;
+}
+
+/**
+ * Generate questions for a Behavioral interview using the STAR method.
+ * No resume or JD required — driven by difficulty + count.
+ */
+export async function generateBehavioralQuestions(difficulty, count) {
+  console.log(`🤖 Generating ${count} ${difficulty} behavioral questions...`);
+  const structuredLlm = llm.withStructuredOutput(QuestionsOnlySchema);
+
+  const competencies = [
+    "leadership and ownership",
+    "conflict resolution and teamwork",
+    "handling failure and learning",
+    "prioritization and time management",
+    "communication and stakeholder management",
+    "initiative and going beyond expectations",
+    "adaptability and dealing with ambiguity",
+  ];
+
+  const prompt = `
+You are a behavioral interviewer assessing a candidate at ${difficulty} level using the STAR method (Situation, Task, Action, Result).
+
+Generate exactly ${count} behavioral interview questions following these rules:
+
+1. Question 1 MUST be a warm-up: "Tell me about yourself and your professional background."
+   - topic: "Introduction", difficulty: "Easy", reason: "Warm-up"
+
+2. Questions 2 through ${count}: behavioral questions expecting STAR-method answers.
+   - All set to difficulty: "${difficulty}"
+   - Cover a diverse mix of these competencies (don't repeat): ${competencies.join(", ")}
+   - For ${difficulty} level: ${
+     difficulty === "Easy"
+       ? "use straightforward, common workplace scenarios suitable for early-career candidates"
+       : difficulty === "Medium"
+       ? "use situations requiring judgment, tradeoffs, or team dynamics"
+       : "use complex leadership, strategic, or high-stakes scenarios"
+   }
+   - Be conversational — use natural filler phrases ("Okay", "Great", "Moving on to the next one")
+   - Do NOT say "final question" on the last question
+
+Return exactly ${count} questions in the schema.
+`;
+
+  const result = await structuredLlm.invoke(prompt);
+  return result.questions;
 }

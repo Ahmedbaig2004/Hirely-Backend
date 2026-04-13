@@ -141,6 +141,8 @@ export async function getNextQuestion(session, currentTurn = null) {
 
   const lastTurn = session.history[session.history.length - 1];
   const lastDifficulty = lastTurn?.difficulty || "Medium";
+  const interviewType = session.interviewType || "JOB_SPECIFIC";
+  const config = session.config || {};
 
   // When currentTurn is provided we skip the numeric score and let Gemini judge
   // difficulty from the transcript itself — enabling parallel execution with eval.
@@ -153,9 +155,35 @@ Difficulty so far: ${lastDifficulty}
 Judge the quality of this answer yourself from the transcript to decide whether to increase, decrease, or maintain difficulty.`
     : `LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastTurn?.score ?? 50}/100.`;
 
+  // Build context section based on interview type
+  let contextSection;
+  let taskDescription;
+
+  if (interviewType === "TECHNICAL") {
+    const topicsCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    contextSection = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level)
+Topics already covered: ${topicsCovered || "(none yet)"}`;
+    taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
+- Stay at or near "${config.difficulty || "Medium"}" difficulty, adjusting by ONE level based on answer quality.
+- Cover a topic NOT already covered above.
+- Do NOT ask about the same concept twice.`;
+  } else if (interviewType === "BEHAVIORAL") {
+    const competenciesCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    contextSection = `INTERVIEW TYPE: Behavioral — STAR method (${config.difficulty || "Medium"} level)
+Competencies already covered: ${competenciesCovered || "(none yet)"}`;
+    taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
+- Stay at or near "${config.difficulty || "Medium"}" difficulty, adjusting by ONE level based on answer quality.
+- Cover a competency NOT already covered above (e.g. leadership, conflict, failure, prioritization, teamwork).
+- Do NOT repeat competencies.`;
+  } else {
+    // JOB_SPECIFIC — original behavior
+    contextSection = `JOB CONTEXT: ${(session.jobDescription || "").substring(0, 500)}...`;
+    taskDescription = `Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.`;
+  }
+
   const prompt = `
-    You are a Dynamic Technical Interviewer.
-    JOB CONTEXT: ${session.jobDescription.substring(0, 500)}...
+    You are a Dynamic Interviewer.
+    ${contextSection}
 
     INTERVIEW HISTORY (previous turns, scored):
     ${historyText || "(No previous turns yet)"}
@@ -163,15 +191,11 @@ Judge the quality of this answer yourself from the transcript to decide whether 
     ${currentTurnSection}
 
     ADAPTIVE DIFFICULTY RULES:
-    - First, identify the role's seniority level from the job context (Junior, Mid, Senior).
     - Strong answer (clear, correct, detailed): you MAY increase difficulty by ONE level (Easy→Medium, Medium→Hard). Never jump two levels.
     - Weak answer (vague, incorrect, "I don't know"): DECREASE difficulty or stay the same. Do NOT keep asking Hard questions after a poor answer.
-    - JUNIOR roles: never go above Medium unless the candidate gave a clearly excellent answer to a Medium question.
-    - MID roles: default range is Medium. Only go to Hard for clearly excellent answers.
-    - SENIOR roles: default range is Medium-Hard. Easy is only for warm-up.
     - Always set the "difficulty" field to exactly one of: "Easy", "Medium", or "Hard".
 
-    TASK: Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.
+    TASK: ${taskDescription}
   `;
 
   const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
@@ -189,21 +213,33 @@ export async function generateFinalReport(
   jobDescription,
   gapAnalysis,
   prefetchedVoiceData = null,
+  interviewType = "JOB_SPECIFIC",
+  config = null,
 ) {
   // 1. Calculate Technical Score (difficulty-adjusted)
-  // Detect role seniority from job description
-  const jdLower = jobDescription.toLowerCase();
-  const roleSeniority =
-    jdLower.includes("senior") ||
-    jdLower.includes("lead") ||
-    jdLower.includes("principal")
-      ? "senior"
-      : jdLower.includes("junior") ||
-          jdLower.includes("entry") ||
-          jdLower.includes("graduate") ||
-          jdLower.includes("intern")
+  // Detect role seniority from job description (JOB_SPECIFIC) or config difficulty (others)
+  let roleSeniority = "mid";
+  if (interviewType === "JOB_SPECIFIC" && jobDescription) {
+    const jdLower = jobDescription.toLowerCase();
+    roleSeniority =
+      jdLower.includes("senior") ||
+      jdLower.includes("lead") ||
+      jdLower.includes("principal")
+        ? "senior"
+        : jdLower.includes("junior") ||
+            jdLower.includes("entry") ||
+            jdLower.includes("graduate") ||
+            jdLower.includes("intern")
+          ? "junior"
+          : "mid";
+  } else if (config?.difficulty) {
+    roleSeniority =
+      config.difficulty === "Hard"
+        ? "senior"
+        : config.difficulty === "Easy"
         ? "junior"
         : "mid";
+  }
 
   const difficultyRank = { Easy: 0, Medium: 1, Hard: 2 };
   const roleBaseRank = { junior: 0, mid: 1, senior: 2 };
@@ -291,14 +327,25 @@ export async function generateFinalReport(
     )
     .join("\n\n");
 
+  // Build interview context description for the prompt
+  let interviewContextLine;
+  if (interviewType === "TECHNICAL" && config) {
+    interviewContextLine = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level, ${config.questionCount || history.length} questions)`;
+  } else if (interviewType === "BEHAVIORAL" && config) {
+    interviewContextLine = `INTERVIEW TYPE: Behavioral (STAR method, ${config.difficulty || "Medium"} level, ${config.questionCount || history.length} questions)`;
+  } else {
+    interviewContextLine = `INTERVIEW TYPE: Job-Specific\n    - Resume Gaps: ${JSON.stringify(gapAnalysis)}`;
+  }
+
   // 4. The "Expert Recruiter" Prompt
   const prompt = `
     You are an expert Technical Hiring Manager.
 
+    ${interviewContextLine}
+
     TECHNICAL DATA:
     - Score: ${technicalScore.toFixed(1)}/100 (difficulty-adjusted)
     - History: ${historyText}
-    - Resume Gaps: ${JSON.stringify(gapAnalysis)}
     - Note: The interview used adaptive difficulty — harder questions were asked when the candidate performed well. A lower score on a Hard question is more acceptable than the same score on an Easy question, especially for junior/entry-level roles.
 
     COMMUNICATION DATA:

@@ -13,12 +13,14 @@ datasource db {
 
 
 model Interview {
-  id          String   @id @default(uuid()) // Use UUID to match Redis SessionID
-  jobDescription String
+  id             String   @id @default(uuid()) // Use UUID to match Redis SessionID
+  interviewType  String   @default("JOB_SPECIFIC") // JOB_SPECIFIC | TECHNICAL | BEHAVIORAL
+  config         Json?    // { stack?, difficulty, questionCount } for non-JD types
+  jobDescription String?  // Required only for JOB_SPECIFIC
   userId         String   // <--- LINK TO SUPABASE USER ID
-  finalScore  Float?
-  finalFeedback Json?  // Store the "Final Report" JSON here
-  createdAt   DateTime @default(now())
+  finalScore     Float?
+  finalFeedback  Json?    // Store the "Final Report" JSON here
+  createdAt      DateTime @default(now())
   
   // Link to Candidate (Optional for now if you don't have auth)
 

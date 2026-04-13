@@ -40,12 +40,12 @@ async function retrieveContext(question, existingQVector = null) {
 /**
  * 🤖 The Judge: LLM Evaluation
  */
-async function evaluateWithLLM(question, answer, contextString, jobDescription, difficulty = "Medium") {
+async function evaluateWithLLM(question, answer, contextString, roleContext, difficulty = "Medium") {
   const prompt = `
     You are a Technical Interviewer evaluating a candidate.
 
-    ### JOB DESCRIPTION:
-    ${(jobDescription || "").substring(0, 800)}
+    ### ROLE CONTEXT:
+    ${(roleContext || "").substring(0, 800)}
 
     ### IMPORTANT — CALIBRATE TO THE ROLE:
     Read the job description above carefully. Identify the seniority level (Junior, Mid, Senior, Lead, etc.) and the role requirements.
@@ -104,7 +104,7 @@ async function evaluateWithLLM(question, answer, contextString, jobDescription, 
 /**
  * 🚀 Main Function
  */
-async function evaluateAnswer(question, userAnswer, jobDescription, difficulty = "Medium") {
+async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "Medium") {
   console.log("\n" + "=".repeat(60));
   console.log("🤖 HIRELY AI JUDGE");
   console.log("=".repeat(60));
@@ -169,7 +169,7 @@ async function evaluateAnswer(question, userAnswer, jobDescription, difficulty =
       question,
       userAnswer,
       contextString || "No context provided.",
-      jobDescription,
+      roleContext,
       difficulty,
     );
 
@@ -196,7 +196,8 @@ function printResult(evaluation) {
 if (process.argv[2]) {
   const q = process.argv[2];
   const a = process.argv[3];
-  evaluateAnswer(q, a);
+  const ctx = process.argv[4] || "";
+  evaluateAnswer(q, a, ctx);
 }
 
 export { evaluateAnswer };
