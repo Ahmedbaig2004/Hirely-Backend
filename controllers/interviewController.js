@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
-import { generateInterviewContext } from "../services/analyzer.js";
+import { generateInitialQuestions } from "../services/initQuestionGenerator.js";
 import { stateManager } from "../services/stateManager.js";
 import { transcribeAudio } from "../services/transcriber.js";
 import {
@@ -26,64 +26,97 @@ const redisClient = new Redis({
   token: process.env.REDIS_TOKEN,
 });
 
-const MAX_QUESTIONS = 2;
+const JOB_SPECIFIC_MAX_QUESTIONS = 2;
 
 /**
  * Initialize interview session
  */
 export const initInterview = async (req, res) => {
   try {
-    // ✅ Validate resume file
-    if (!req.file) {
-      return res.status(400).json({ error: "Resume file is required" });
-    }
-
-    if (req.file.size > 10 * 1024 * 1024) {
-      // 10MB limit
-      return res
-        .status(400)
-        .json({ error: "Resume file must be less than 10MB" });
-    }
-
-    // ✅ Validate job description
-    const { userId, jobDescription } = req.body;
-
-    if (!jobDescription || jobDescription.trim().length === 0) {
-      return res.status(400).json({ error: "Job description is required" });
-    }
-
-    if (jobDescription.length > 10000) {
-      return res
-        .status(400)
-        .json({ error: "Job description must be less than 10000 characters" });
-    }
+    const { userId, jobDescription, interviewType: rawType } = req.body;
+    const interviewType = rawType || "JOB_SPECIFIC";
 
     if (!userId) {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    const analysis = await generateInterviewContext(
-      req.file.buffer,
-      req.body.jobDescription,
-    );
+    // Parse and validate per interview type
+    let config = null;
+
+    if (interviewType === "JOB_SPECIFIC") {
+      // ✅ Validate resume file
+      if (!req.file) {
+        return res.status(400).json({ error: "Resume file is required" });
+      }
+      if (req.file.size > 10 * 1024 * 1024) {
+        return res.status(400).json({ error: "Resume file must be less than 10MB" });
+      }
+      if (!jobDescription || jobDescription.trim().length === 0) {
+        return res.status(400).json({ error: "Job description is required" });
+      }
+      if (jobDescription.length > 10000) {
+        return res.status(400).json({ error: "Job description must be less than 10000 characters" });
+      }
+    } else if (interviewType === "TECHNICAL") {
+      const { stack, difficulty, questionCount } = req.body;
+      if (!stack || !stack.trim()) {
+        return res.status(400).json({ error: "Stack is required for Technical interviews" });
+      }
+      if (!["Easy", "Medium", "Hard"].includes(difficulty)) {
+        return res.status(400).json({ error: "difficulty must be Easy, Medium, or Hard" });
+      }
+      const count = parseInt(questionCount, 10);
+      if (!count || count < 1 || count > 10) {
+        return res.status(400).json({ error: "questionCount must be between 1 and 10" });
+      }
+      config = { stack: stack.trim(), difficulty, questionCount: count };
+    } else if (interviewType === "BEHAVIORAL") {
+      const { difficulty, questionCount } = req.body;
+      if (!["Easy", "Medium", "Hard"].includes(difficulty)) {
+        return res.status(400).json({ error: "difficulty must be Easy, Medium, or Hard" });
+      }
+      const count = parseInt(questionCount, 10);
+      if (!count || count < 1 || count > 10) {
+        return res.status(400).json({ error: "questionCount must be between 1 and 10" });
+      }
+      config = { difficulty, questionCount: count };
+    } else {
+      return res.status(400).json({ error: `Unknown interviewType: ${interviewType}` });
+    }
+
+    const analysis = await generateInitialQuestions({
+      interviewType,
+      resumeBuffer: req.file?.buffer ?? null,
+      jobDescription: jobDescription || null,
+      config,
+    });
 
     const sessionId = uuidv4();
     const firstQuestion = analysis.questions[0];
+    const interviewerVoice =
+      req.body.interviewerVoice === "male" ? "male" : "female";
 
     await stateManager.initSession(sessionId, {
-      jobDescription: req.body.jobDescription,
+      interviewType,
+      config,
+      jobDescription: jobDescription || null,
       initialQuestions: analysis.questions,
-      gapAnalysis: analysis.gapAnalysis,
+      gapAnalysis: analysis.gapAnalysis || null,
       userId: userId || "anonymous",
+      interviewerVoice,
     });
 
     await stateManager.updateCurrentQuestion(sessionId, firstQuestion);
 
     let audioBase64 = null;
+    let audioMime = null;
     if (process.env.ENABLE_TTS === "true") {
       try {
-        const audioBuffer = await generateAudio(firstQuestion.question);
-        if (audioBuffer) audioBase64 = audioBuffer.toString("base64");
+        const result = await generateAudio(firstQuestion.question, interviewerVoice);
+        if (result) {
+          audioBase64 = result.buffer.toString("base64");
+          audioMime = result.mime;
+        }
       } catch (e) {
         console.error("TTS Init Error:", e);
       }
@@ -94,6 +127,7 @@ export const initInterview = async (req, res) => {
       analysis,
       firstQuestion,
       audio: audioBase64,
+      audioMime,
     });
   } catch (e) {
     console.error("Init Error:", e);
@@ -127,10 +161,27 @@ export const submitAnswer = async (req, res) => {
       return res.status(400).json({ error: "No answer provided." });
     }
 
-    // 2. Fetch session for job description + current question difficulty
+    // 2. Fetch session for context + current question difficulty
     const session = await stateManager.getSession(sessionId);
-    const jobDescription = session?.jobDescription || "";
     const currentDifficulty = session?.currentQuestion?.difficulty || "Medium";
+    const sessionInterviewType = session?.interviewType || "JOB_SPECIFIC";
+    const sessionConfig = session?.config || {};
+
+    // Build role context for evaluateAnswer based on interview type
+    let roleContext;
+    if (sessionInterviewType === "TECHNICAL") {
+      roleContext = `${sessionConfig.stack || "Technical"} developer, ${sessionConfig.difficulty || "Medium"} difficulty — score on correctness, depth, and real-world awareness`;
+    } else if (sessionInterviewType === "BEHAVIORAL") {
+      roleContext = `Behavioral STAR method, ${sessionConfig.difficulty || "Medium"} level — score on Situation/Task/Action/Result clarity, specificity, and ownership`;
+    } else {
+      roleContext = session?.jobDescription || "";
+    }
+
+    // Dynamic max questions: config.questionCount for Technical/Behavioral, JOB_SPECIFIC_MAX_QUESTIONS otherwise
+    const maxQuestions =
+      sessionInterviewType !== "JOB_SPECIFIC" && sessionConfig.questionCount
+        ? sessionConfig.questionCount
+        : JOB_SPECIFIC_MAX_QUESTIONS;
 
     // 2.5. Translate Roman Urdu → English for evaluation (Urdu answers only)
     // English answers are used directly; original Roman Urdu is kept for display/storage
@@ -196,7 +247,7 @@ export const submitAnswer = async (req, res) => {
     }
 
     // 5. CHECK GAME OVER - Return immediately, let frontend poll + finalize
-    if (updatedSession.history.length >= MAX_QUESTIONS) {
+    if (updatedSession.history.length >= maxQuestions) {
       console.log(
         "🏁 Interview Finished. Returning to frontend for voice analysis polling...",
       );
@@ -216,11 +267,16 @@ export const submitAnswer = async (req, res) => {
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
+    const interviewerVoice = session.interviewerVoice || "female";
     let audioBase64 = null;
+    let audioMime = null;
     if (process.env.ENABLE_TTS === "true" && nextQ?.question) {
       try {
-        const audioBuffer = await generateAudio(nextQ.question);
-        if (audioBuffer) audioBase64 = audioBuffer.toString("base64");
+        const result = await generateAudio(nextQ.question, interviewerVoice);
+        if (result) {
+          audioBase64 = result.buffer.toString("base64");
+          audioMime = result.mime;
+        }
       } catch (e) {
         console.error("TTS Error:", e);
       }
@@ -231,6 +287,7 @@ export const submitAnswer = async (req, res) => {
       nextQuestion: nextQ,
       transcript: answerText,
       audio: audioBase64,
+      audioMime,
     });
   } catch (error) {
     console.error("Submit Error:", error);
@@ -299,10 +356,13 @@ export const finalizeInterview = async (req, res) => {
   }
   const uploadDir = path.join(process.cwd(), "uploads", sessionId);
 
+  // Hoisted so the finally block can reference session for cleanup
+  let session = null;
+
   try {
 
     // 1. Read session state from Redis
-    const session = await stateManager.getSession(sessionId);
+    session = await stateManager.getSession(sessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found or expired" });
     }
@@ -337,6 +397,18 @@ export const finalizeInterview = async (req, res) => {
 
     // 3. Evaluate all turns in parallel (deferred from interview hot path)
     // Each turn stored evaluationText (translated if Urdu) and detectedLanguage for this step.
+    // Build role context for evaluation
+    const finalInterviewType = session.interviewType || "JOB_SPECIFIC";
+    const finalConfig = session.config || {};
+    let finalRoleContext;
+    if (finalInterviewType === "TECHNICAL") {
+      finalRoleContext = `${finalConfig.stack || "Technical"} developer, ${finalConfig.difficulty || "Medium"} difficulty — score on correctness, depth, and real-world awareness`;
+    } else if (finalInterviewType === "BEHAVIORAL") {
+      finalRoleContext = `Behavioral STAR method, ${finalConfig.difficulty || "Medium"} level — score on Situation/Task/Action/Result clarity, specificity, and ownership`;
+    } else {
+      finalRoleContext = session.jobDescription || "";
+    }
+
     console.log(`⚖️  Evaluating ${session.history.length} turns in parallel...`);
     const [evaluations, deliveryAnalyses] = await Promise.all([
       Promise.all(
@@ -344,7 +416,7 @@ export const finalizeInterview = async (req, res) => {
           evaluateAnswer(
             turn.question,
             turn.evaluationText || turn.answer,
-            session.jobDescription,
+            finalRoleContext,
             turn.difficulty || "Medium",
           ),
         ),
@@ -406,6 +478,8 @@ export const finalizeInterview = async (req, res) => {
         session.jobDescription,
         session.gapAnalysis,
         prefetchedVoiceData,
+        finalInterviewType,
+        finalConfig,
       ),
       (async () => {
         const urls = {};
@@ -449,8 +523,10 @@ export const finalizeInterview = async (req, res) => {
     await prisma.interview.create({
       data: {
         id: sessionId,
+        interviewType: finalInterviewType,
+        config: finalConfig || undefined,
         userId: session.userId,
-        jobDescription: session.jobDescription,
+        jobDescription: session.jobDescription || null,
         finalScore: averageScore,
         finalFeedback: finalReport,
         turns: {
@@ -507,7 +583,8 @@ export const finalizeInterview = async (req, res) => {
     // 7. Always cleanup Redis + local audio files, even on error
     try {
       await stateManager.deleteSession(sessionId);
-      for (let i = 1; i <= MAX_QUESTIONS; i++) {
+      const cleanupCount = session?.history?.length ?? JOB_SPECIFIC_MAX_QUESTIONS;
+      for (let i = 1; i <= cleanupCount; i++) {
         await redisClient.del(`voice_analysis:${sessionId}:${i}`);
       }
       if (fs.existsSync(uploadDir)) {

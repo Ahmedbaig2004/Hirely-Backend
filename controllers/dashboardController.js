@@ -9,6 +9,7 @@ export const getInterviews = async (req, res) => {
       where: { userId: userId }, // <--- FILTER HERE
       select: {
         id: true,
+        interviewType: true,
         jobDescription: true,
         finalScore: true,
         finalFeedback: true,

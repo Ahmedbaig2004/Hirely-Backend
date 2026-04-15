@@ -11,10 +11,13 @@ export const stateManager = {
   // 1. Start Interview
   async initSession(sessionId, data) {
     const sessionData = {
-      jobDescription: data.jobDescription,
+      interviewType: data.interviewType || "JOB_SPECIFIC",
+      config: data.config || null,
+      jobDescription: data.jobDescription || null,
       questionQueue: data.initialQuestions,
-      gapAnalysis: data.gapAnalysis,
-      userId: data.userId, 
+      gapAnalysis: data.gapAnalysis || null,
+      userId: data.userId,
+      interviewerVoice: data.interviewerVoice || "female",
       // ✅ TRACK CURRENT QUESTION (Initialize with the first one)
       currentQuestion: data.initialQuestions[0],
       history: [],

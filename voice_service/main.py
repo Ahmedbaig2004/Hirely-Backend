@@ -403,6 +403,7 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
             contributors.append({
                 "feature": feat_name,
                 "label": label,
+                "category": _FEATURE_TO_CATEGORY.get(feat_name, "Other"),
                 "value": round(fval, 4),
                 "shap_value": round(sv, 4),
                 "direction": "increased" if sv > 0 else "decreased",
@@ -412,9 +413,10 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
 
         contributors.sort(key=lambda x: x["impact_magnitude"], reverse=True)
 
-        # Split into top 3 improvements (negative SHAP) + top 2 strengths (positive SHAP)
-        significant_neg = [c for c in contributors if c["direction"] == "decreased"][:3]
-        significant_pos = [c for c in contributors if c["direction"] == "increased"][:2]
+        # Only include improvements with meaningful negative impact (> 2% of score, aligned with category threshold)
+        significant_neg = [c for c in contributors if c["direction"] == "decreased" and c["impact_magnitude"] > 0.02]
+        # Cap at top 3 strengths — prevents dilution with low-R² model
+        significant_pos = [c for c in contributors if c["direction"] == "increased"][:3]
         top_contributors = significant_neg + significant_pos
 
         return {
@@ -476,6 +478,12 @@ SHAP_CATEGORIES = {
     },
 }
 
+# Reverse lookup: feature name → parent category label
+_FEATURE_TO_CATEGORY: dict[str, str] = {}
+for _cat_key, _cat_def in SHAP_CATEGORIES.items():
+    for _feat in _cat_def["features"]:
+        _FEATURE_TO_CATEGORY[_feat] = _cat_def["label"]
+
 
 def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
     """
@@ -489,12 +497,12 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
         feat_shaps = {f: all_shap_values.get(f, 0.0) for f in cat["features"]}
         shap_sum = sum(feat_shaps.values())
 
-        if shap_sum > 0.01:
-            status = "Good"
-        elif shap_sum < -0.01:
-            status = "Needs Improvement"
+        if shap_sum > 0.02:
+            status = "Helped Your Score"
+        elif shap_sum < -0.02:
+            status = "Held Back Your Score"
         else:
-            status = "Neutral"
+            status = "Minimal Impact"
 
         top_feat = max(feat_shaps, key=lambda f: abs(feat_shaps[f]))
         top_sv = feat_shaps[top_feat]
@@ -516,6 +524,7 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
             "label": cat["label"],
             "status": status,
             "shap_sum": round(shap_sum, 4),
+            "impact_pct": round(abs(shap_sum) * 100, 1),
             "top_driver": {
                 "feature": top_feat,
                 "label": label,
@@ -561,7 +570,7 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
             worst_category = cat_data["label"]
 
     primary_goal = None
-    if worst_feat and worst_sv < -0.005:
+    if worst_feat and worst_sv < -0.02:
         primary_goal = {
             "feature": worst_feat["feature"],
             "label": worst_feat["label"],
