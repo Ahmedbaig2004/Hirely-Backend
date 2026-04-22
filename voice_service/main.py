@@ -237,8 +237,8 @@ async def lifespan(app: FastAPI):
     try:
         print("Loading models and initializing tools...")
 
-        models['final_model'] = joblib.load("models/xgboost_fair_model.pkl")
-        models['top_features'] = joblib.load("models/top_features_fair.pkl")
+        models['final_model'] = joblib.load("models/xgboost_balance_model.pkl")
+        models['top_features'] = joblib.load("models/top_features_balance.pkl")
         print(f"   XGBoost model loaded — {len(models['top_features'])} features")
 
         models['smile'] = opensmile.Smile(
@@ -249,6 +249,10 @@ async def lifespan(app: FastAPI):
 
         models['shap_explainer'] = shap.TreeExplainer(models['final_model'])
         print("   SHAP TreeExplainer ready")
+
+        models['beta_params'] = joblib.load("models/beta_params_production.pkl")
+        bp = models['beta_params']
+        print(f"   Beta calibrator loaded — params c={bp[0]:.3f}, d={bp[1]:.3f}, e={bp[2]:.3f}")
 
         print("\nSERVICE READY!")
         print("="*60 + "\n")
@@ -584,12 +588,16 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
 # ============================================================
 # PREDICTION PIPELINE
 # ============================================================
-MODEL_MIN = 0.2332
-MODEL_MAX = 0.6733
-
-def rescale_score(raw_score: float) -> float:
-    scaled = (raw_score - MODEL_MIN) / (MODEL_MAX - MODEL_MIN)
-    return max(0.0, min(1.0, scaled))
+def beta_calibrate(raw_score: float) -> float:
+    """
+    Logistic-beta calibration fitted on 200 in-house rated clips.
+    Mirrors beta_curve from the calibration training script — must
+    not deviate, or scores will diverge from the rating team's scale.
+    """
+    c, d, e = models['beta_params']
+    x = float(np.clip(raw_score, 1e-5, 1.0 - 1e-5))
+    log_odds = c * np.log(x) + d * np.log(1.0 - x) + e
+    return float(1.0 / (1.0 + np.exp(-log_odds)))
 
 def score_to_label(score: float) -> str:
     """Map 0-1 regression output to a text label (used in Gemini prompts and report)."""
@@ -627,8 +635,8 @@ def predict_confidence(audio_path: str, transcript_text: str | None = None) -> d
     # 4 — predict (no scaler needed, XGBoost is scale-invariant)
     raw_score = float(models['final_model'].predict(X)[0])
     clipped_raw = float(np.clip(raw_score, 0.0, 1.0))
-    confidence_score = rescale_score(clipped_raw)
-    logger.info(f"Score rescaling: raw={clipped_raw:.4f} → rescaled={confidence_score:.4f}")
+    confidence_score = beta_calibrate(clipped_raw)
+    logger.info(f"Score calibration: raw={clipped_raw:.4f} → calibrated={confidence_score:.4f}")
 
     # 5 — SHAP explanations (use raw score, not rescaled)
     shap_result = generate_shap_explanations(X, clipped_raw)
@@ -702,7 +710,7 @@ async def process_voice_analysis(
             "jitter": round(float(raw.get("jitterLocal_sma3nz_amean", 0) or 0), 6),
             "shimmer": round(float(raw.get("shimmerLocaldB_sma3nz_amean", 0) or 0), 6),
 
-            "modelVersion": "v2.0-egemaps-shap",
+            "modelVersion": "v2.1-egemaps-shap-betacal",
 
             # SHAP values stored in allProbabilities for DB (Json field)
             "allProbabilities": shap["all_shap_values"],
