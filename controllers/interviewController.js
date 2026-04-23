@@ -49,39 +49,57 @@ export const initInterview = async (req, res) => {
         return res.status(400).json({ error: "Resume file is required" });
       }
       if (req.file.size > 10 * 1024 * 1024) {
-        return res.status(400).json({ error: "Resume file must be less than 10MB" });
+        return res
+          .status(400)
+          .json({ error: "Resume file must be less than 10MB" });
       }
       if (!jobDescription || jobDescription.trim().length === 0) {
         return res.status(400).json({ error: "Job description is required" });
       }
       if (jobDescription.length > 10000) {
-        return res.status(400).json({ error: "Job description must be less than 10000 characters" });
+        return res
+          .status(400)
+          .json({
+            error: "Job description must be less than 10000 characters",
+          });
       }
     } else if (interviewType === "TECHNICAL") {
       const { stack, difficulty, questionCount } = req.body;
       if (!stack || !stack.trim()) {
-        return res.status(400).json({ error: "Stack is required for Technical interviews" });
+        return res
+          .status(400)
+          .json({ error: "Stack is required for Technical interviews" });
       }
       if (!["Easy", "Medium", "Hard"].includes(difficulty)) {
-        return res.status(400).json({ error: "difficulty must be Easy, Medium, or Hard" });
+        return res
+          .status(400)
+          .json({ error: "difficulty must be Easy, Medium, or Hard" });
       }
       const count = parseInt(questionCount, 10);
       if (!count || count < 1 || count > 10) {
-        return res.status(400).json({ error: "questionCount must be between 1 and 10" });
+        return res
+          .status(400)
+          .json({ error: "questionCount must be between 1 and 10" });
       }
       config = { stack: stack.trim(), difficulty, questionCount: count };
     } else if (interviewType === "BEHAVIORAL") {
       const { difficulty, questionCount } = req.body;
       if (!["Easy", "Medium", "Hard"].includes(difficulty)) {
-        return res.status(400).json({ error: "difficulty must be Easy, Medium, or Hard" });
+        return res
+          .status(400)
+          .json({ error: "difficulty must be Easy, Medium, or Hard" });
       }
       const count = parseInt(questionCount, 10);
       if (!count || count < 1 || count > 10) {
-        return res.status(400).json({ error: "questionCount must be between 1 and 10" });
+        return res
+          .status(400)
+          .json({ error: "questionCount must be between 1 and 10" });
       }
       config = { difficulty, questionCount: count };
     } else {
-      return res.status(400).json({ error: `Unknown interviewType: ${interviewType}` });
+      return res
+        .status(400)
+        .json({ error: `Unknown interviewType: ${interviewType}` });
     }
 
     const analysis = await generateInitialQuestions({
@@ -95,6 +113,9 @@ export const initInterview = async (req, res) => {
     const firstQuestion = analysis.questions[0];
     const interviewerVoice =
       req.body.interviewerVoice === "male" ? "male" : "female";
+    const interviewMode = ["chat", "audio", "video"].includes(req.body.interviewMode)
+      ? req.body.interviewMode
+      : "audio";
 
     await stateManager.initSession(sessionId, {
       interviewType,
@@ -104,6 +125,7 @@ export const initInterview = async (req, res) => {
       gapAnalysis: analysis.gapAnalysis || null,
       userId: userId || "anonymous",
       interviewerVoice,
+      interviewMode,
     });
 
     await stateManager.updateCurrentQuestion(sessionId, firstQuestion);
@@ -112,7 +134,10 @@ export const initInterview = async (req, res) => {
     let audioMime = null;
     if (process.env.ENABLE_TTS === "true") {
       try {
-        const result = await generateAudio(firstQuestion.question, interviewerVoice);
+        const result = await generateAudio(
+          firstQuestion.question,
+          interviewerVoice,
+        );
         if (result) {
           audioBase64 = result.buffer.toString("base64");
           audioMime = result.mime;
@@ -149,11 +174,13 @@ export const submitAnswer = async (req, res) => {
     // 1. Transcription Logic + determine answer mode
     let answerMode = "chat";
     let detectedLanguage = "en";
-    if (req.file) {
-      const { transcript, language } = await transcribeAudio(req.file.buffer);
+    const audioFile = req.files?.audio?.[0];
+    const videoFile = req.files?.video?.[0];
+    if (audioFile) {
+      const { transcript, language } = await transcribeAudio(audioFile.buffer);
       answerText = transcript;
       detectedLanguage = language;
-      answerMode = "audio";
+      answerMode = videoFile ? "video" : "audio";
     } else if (req.body.answer) {
       answerText = req.body.answer;
       detectedLanguage = isRomanUrdu(answerText) ? "ur" : "en";
@@ -207,15 +234,15 @@ export const submitAnswer = async (req, res) => {
       sessionId,
       question,
       answerText,
-      null,        // evaluation deferred
+      null, // evaluation deferred
       answerMode,
-      null,        // deliveryAnalysis deferred
+      null, // deliveryAnalysis deferred
       evaluationText,
       detectedLanguage,
     );
 
     // 4. TRIGGER VOICE ANALYSIS (Background Task)
-    if (req.file) {
+    if (audioFile) {
       try {
         const turnIndex = updatedSession.history.length;
         const uploadDir = path.join(process.cwd(), "uploads", sessionId);
@@ -224,7 +251,7 @@ export const submitAnswer = async (req, res) => {
 
         if (!fs.existsSync(uploadDir))
           fs.mkdirSync(uploadDir, { recursive: true });
-        fs.writeFileSync(audioPath, req.file.buffer);
+        fs.writeFileSync(audioPath, audioFile.buffer);
 
         axios
           .post(
@@ -241,6 +268,25 @@ export const submitAnswer = async (req, res) => {
           );
 
         console.log(`🎤 Voice analysis triggered for turn ${turnIndex}`);
+
+        // Also trigger video analysis if video mode
+        if (answerMode === "video" && videoFile) {
+          const videoPath = path.join(uploadDir, `turn_${turnIndex}.webm`);
+          fs.writeFileSync(videoPath, videoFile.buffer);
+          axios
+            .post(
+              `${process.env.VIDEO_SERVICE_URL || "http://localhost:8002"}/analyze-video`,
+              {
+                turn_id: turnIndex,
+                interview_id: sessionId,
+                video_path: videoPath,
+              },
+            )
+            .catch((err) =>
+              console.error("⚠️ Video Service Trigger Failed:", err.message),
+            );
+          console.log(`🎥 Video analysis triggered for turn ${turnIndex}`);
+        }
       } catch (voiceErr) {
         console.warn("⚠️ Voice Integration Error:", voiceErr.message);
       }
@@ -263,7 +309,7 @@ export const submitAnswer = async (req, res) => {
     let nextQ =
       queue && queue.length > 0
         ? queue[0]
-        : parallelNextQ ?? (await getNextQuestion(updatedSession));
+        : (parallelNextQ ?? (await getNextQuestion(updatedSession)));
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
@@ -339,7 +385,47 @@ export const getVoiceProgress = async (req, res) => {
       }
     }
 
-    res.json({ completed, total, allDone: completed >= total, statuses });
+    // Also check video analysis progress for video turns
+    const videoTurnIndices = [];
+    history.forEach((turn, idx) => {
+      if (turn.answerMode === "video") {
+        videoTurnIndices.push(idx + 1);
+      }
+    });
+
+    let videoCompleted = 0;
+    const videoTotal = videoTurnIndices.length;
+    const videoStatuses = [];
+
+    for (const turnIdx of videoTurnIndices) {
+      const data = await redisClient.get(
+        `video_analysis:${sessionId}:${turnIdx}`,
+      );
+      if (data) {
+        const parsed = typeof data === "string" ? JSON.parse(data) : data;
+        if (parsed.status === "completed" || parsed.status === "failed") {
+          videoCompleted++;
+          videoStatuses.push({ turn: turnIdx, status: parsed.status });
+        } else {
+          videoStatuses.push({ turn: turnIdx, status: "processing" });
+        }
+      } else {
+        videoStatuses.push({ turn: turnIdx, status: "pending" });
+      }
+    }
+
+    res.json({
+      completed,
+      total,
+      allDone: completed >= total && videoCompleted >= videoTotal,
+      statuses,
+      video: {
+        completed: videoCompleted,
+        total: videoTotal,
+        allDone: videoCompleted >= videoTotal,
+        statuses: videoStatuses,
+      },
+    });
   } catch (e) {
     console.error("Voice Progress Error:", e);
     res.status(500).json({ error: "Failed to check progress" });
@@ -360,7 +446,6 @@ export const finalizeInterview = async (req, res) => {
   let session = null;
 
   try {
-
     // 1. Read session state from Redis
     session = await stateManager.getSession(sessionId);
     if (!session) {
@@ -395,6 +480,33 @@ export const finalizeInterview = async (req, res) => {
       }
     }
 
+    // 2b. Wait for video analyses to complete (only for video turns)
+    const videoTurnIndices = session.history
+      .map((turn, idx) => (turn.answerMode === "video" ? idx + 1 : null))
+      .filter((idx) => idx !== null);
+
+    if (videoTurnIndices.length > 0) {
+      const MAX_RETRIES = 15;
+      const RETRY_DELAY_MS = 1000;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const checks = await Promise.all(
+          videoTurnIndices.map((turnIdx) =>
+            redisClient.get(`video_analysis:${sessionId}:${turnIdx}`),
+          ),
+        );
+        const done = checks.filter((data) => {
+          if (!data) return false;
+          const parsed = typeof data === "string" ? JSON.parse(data) : data;
+          return parsed.status === "completed" || parsed.status === "failed";
+        }).length;
+        if (done >= videoTurnIndices.length) break;
+        console.log(
+          `⏳ Finalize: Video analysis ${done}/${videoTurnIndices.length} complete, waiting...`,
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+
     // 3. Evaluate all turns in parallel (deferred from interview hot path)
     // Each turn stored evaluationText (translated if Urdu) and detectedLanguage for this step.
     // Build role context for evaluation
@@ -409,7 +521,9 @@ export const finalizeInterview = async (req, res) => {
       finalRoleContext = session.jobDescription || "";
     }
 
-    console.log(`⚖️  Evaluating ${session.history.length} turns in parallel...`);
+    console.log(
+      `⚖️  Evaluating ${session.history.length} turns in parallel...`,
+    );
     const [evaluations, deliveryAnalyses] = await Promise.all([
       Promise.all(
         session.history.map((turn) =>
@@ -442,24 +556,43 @@ export const finalizeInterview = async (req, res) => {
     }));
 
     // 4. Enrich scored history with voice data from Redis (batch fetch — one roundtrip)
-    const voiceKeys = scoredHistory.map((_, index) =>
-      `voice_analysis:${sessionId}:${index + 1}`,
+    const voiceKeys = scoredHistory.map(
+      (_, index) => `voice_analysis:${sessionId}:${index + 1}`,
     );
     const voiceDataRaw = await Promise.all(
       voiceKeys.map((key) => redisClient.get(key)),
     );
+    // 4b. Enrich with video data from Redis
+    const videoKeys = scoredHistory.map(
+      (_, index) => `video_analysis:${sessionId}:${index + 1}`,
+    );
+    const videoDataRaw = await Promise.all(
+      videoKeys.map((key) => redisClient.get(key)),
+    );
+
     const enrichedHistory = scoredHistory.map((turn, index) => {
       const raw = voiceDataRaw[index];
       const voiceAnalysis = raw
-        ? (typeof raw === "string" ? JSON.parse(raw) : raw)
+        ? typeof raw === "string"
+          ? JSON.parse(raw)
+          : raw
         : null;
-      return { ...turn, voiceAnalysis };
+      const videoRaw = videoDataRaw[index];
+      const videoAnalysis = videoRaw
+        ? typeof videoRaw === "string"
+          ? JSON.parse(videoRaw)
+          : videoRaw
+        : null;
+      return { ...turn, voiceAnalysis, videoAnalysis };
     });
 
-    // Pre-extract non-null voice records for generateFinalReport to avoid a duplicate Redis read
+    // Pre-extract non-null voice/video records for generateFinalReport to avoid a duplicate Redis read
     const prefetchedVoiceData = enrichedHistory
       .map((turn) => turn.voiceAnalysis)
       .filter((v) => v !== null);
+    const prefetchedVideoData = enrichedHistory
+      .map((turn) => turn.videoAnalysis)
+      .filter((v) => v !== null && v.status === "completed");
 
     const totalScore = enrichedHistory.reduce(
       (sum, turn) => sum + (turn.score ?? 0),
@@ -480,6 +613,7 @@ export const finalizeInterview = async (req, res) => {
         prefetchedVoiceData,
         finalInterviewType,
         finalConfig,
+        prefetchedVideoData,
       ),
       (async () => {
         const urls = {};
@@ -507,10 +641,7 @@ export const finalizeInterview = async (req, res) => {
                   console.warn(`  ⚠️ Turn ${i} upload failed:`, error.message);
                 }
               } catch (uploadErr) {
-                console.warn(
-                  `  ⚠️ Turn ${i} upload error:`,
-                  uploadErr.message,
-                );
+                console.warn(`  ⚠️ Turn ${i} upload error:`, uploadErr.message);
               }
             },
           ),
@@ -569,6 +700,21 @@ export const finalizeInterview = async (req, res) => {
                   },
                 }
               : undefined,
+            videoAnalysis:
+              turn.videoAnalysis?.status === "completed"
+                ? {
+                    create: {
+                      confidenceLevel: turn.videoAnalysis.confidenceLevel,
+                      confidenceLabelText:
+                        turn.videoAnalysis.confidenceLabelText,
+                      rawScore: turn.videoAnalysis.rawScore,
+                      modelVersion: turn.videoAnalysis.modelVersion,
+                      status: "completed",
+                      processingTimeMs: turn.videoAnalysis.processingTimeMs,
+                      processedAt: new Date(turn.videoAnalysis.processedAt),
+                    },
+                  }
+                : undefined,
           })),
         },
       },
@@ -583,9 +729,11 @@ export const finalizeInterview = async (req, res) => {
     // 7. Always cleanup Redis + local audio files, even on error
     try {
       await stateManager.deleteSession(sessionId);
-      const cleanupCount = session?.history?.length ?? JOB_SPECIFIC_MAX_QUESTIONS;
+      const cleanupCount =
+        session?.history?.length ?? JOB_SPECIFIC_MAX_QUESTIONS;
       for (let i = 1; i <= cleanupCount; i++) {
         await redisClient.del(`voice_analysis:${sessionId}:${i}`);
+        await redisClient.del(`video_analysis:${sessionId}:${i}`);
       }
       if (fs.existsSync(uploadDir)) {
         fs.rmSync(uploadDir, { recursive: true, force: true });

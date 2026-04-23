@@ -160,7 +160,10 @@ Judge the quality of this answer yourself from the transcript to decide whether 
   let taskDescription;
 
   if (interviewType === "TECHNICAL") {
-    const topicsCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    const topicsCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
     contextSection = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level)
 Topics already covered: ${topicsCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
@@ -168,7 +171,10 @@ Topics already covered: ${topicsCovered || "(none yet)"}`;
 - Cover a topic NOT already covered above.
 - Do NOT ask about the same concept twice.`;
   } else if (interviewType === "BEHAVIORAL") {
-    const competenciesCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    const competenciesCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
     contextSection = `INTERVIEW TYPE: Behavioral — STAR method (${config.difficulty || "Medium"} level)
 Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
@@ -215,6 +221,7 @@ export async function generateFinalReport(
   prefetchedVoiceData = null,
   interviewType = "JOB_SPECIFIC",
   config = null,
+  prefetchedVideoData = null,
 ) {
   // 1. Calculate Technical Score (difficulty-adjusted)
   // Detect role seniority from job description (JOB_SPECIFIC) or config difficulty (others)
@@ -237,8 +244,8 @@ export async function generateFinalReport(
       config.difficulty === "Hard"
         ? "senior"
         : config.difficulty === "Easy"
-        ? "junior"
-        : "mid";
+          ? "junior"
+          : "mid";
   }
 
   const difficultyRank = { Easy: 0, Medium: 1, Hard: 2 };
@@ -336,7 +343,12 @@ export async function generateFinalReport(
   } else {
     interviewContextLine = `INTERVIEW TYPE: Job-Specific\n    - Resume Gaps: ${JSON.stringify(gapAnalysis)}`;
   }
-
+  const videoAnalyses = prefetchedVideoData || [];
+  const hasVideoData = videoAnalyses.length > 0;
+  const videoScore = hasVideoData
+    ? videoAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
+      videoAnalyses.length
+    : null;
   // 4. The "Expert Recruiter" Prompt
   const prompt = `
     You are an expert Technical Hiring Manager.
@@ -357,6 +369,9 @@ export async function generateFinalReport(
     - Per-question breakdown:
     ${deliveryInsights}
 
+    BODY LANGUAGE DATA:
+    - Video Confidence Score: ${videoScore !== null ? videoScore.toFixed(1) + "/100" : "N/A (no video data)"}
+
     TASK:
     Evaluate the overall candidate considering technical knowledge, vocal delivery, AND answer quality/structure.
     Look for "Confidence Mismatches": If the technical score is high but vocal insights mention
@@ -369,6 +384,8 @@ export async function generateFinalReport(
   const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
   const result = await structuredLlm.invoke(prompt);
 
+  // 4b. Aggregate Video Score
+
   // 5. Final Combined Payload for the Database & UI
   // Content quality blends technical accuracy + delivery quality
   const contentQuality =
@@ -376,12 +393,17 @@ export async function generateFinalReport(
       ? technicalScore * 0.6 + deliveryScore * 0.4
       : technicalScore;
 
-  // Fusion weights: content 60%, vocal 40% (interim — no video yet)
-  // When video is added: content 41%, video 32%, vocal 27%
-  // For chat-only interviews with no voice data, combined = contentQuality only
-  const combined = voiceScore !== null
-    ? contentQuality * 0.6 + voiceScore * 0.4
-    : contentQuality;
+  // Late fusion: 3-modality (content 41%, video 32%, vocal 27%) or fallback to 2/1
+  let combined;
+  if (voiceScore !== null && videoScore !== null) {
+    combined = contentQuality * 0.41 + videoScore * 0.32 + voiceScore * 0.27;
+  } else if (voiceScore !== null) {
+    combined = contentQuality * 0.6 + voiceScore * 0.4;
+  } else if (videoScore !== null) {
+    combined = contentQuality * 0.56 + videoScore * 0.44;
+  } else {
+    combined = contentQuality;
+  }
 
   // Delivery summary for frontend
   const deliverySummary =
@@ -424,6 +446,7 @@ export async function generateFinalReport(
     scores: {
       technical: parseFloat(technicalScore.toFixed(1)),
       voice: voiceScore !== null ? parseFloat(voiceScore.toFixed(1)) : null,
+      video: videoScore !== null ? parseFloat(videoScore.toFixed(1)) : null,
       delivery:
         deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
       contentQuality: parseFloat(contentQuality.toFixed(1)),

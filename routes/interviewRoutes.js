@@ -30,7 +30,15 @@ router.post(
 );
 
 // Submit answer (Protected by AI Limiter)
-router.post("/submit-answer", aiLimiter, upload.single("audio"), submitAnswer);
+router.post(
+  "/submit-answer",
+  aiLimiter,
+  upload.fields([
+    { name: "audio", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
+  submitAnswer,
+);
 
 // Voice analysis progress polling
 router.get("/voice-progress/:sessionId", getVoiceProgress);

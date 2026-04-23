@@ -52,7 +52,7 @@ export const getInterviewDetail = async (req, res) => {
       where: { id },
       include: {
         turns: {
-          include: { voiceAnalysis: true },
+          include: { voiceAnalysis: true, videoAnalysis: true },
           orderBy: { createdAt: "asc" },
         },
       },
