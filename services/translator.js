@@ -1,9 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generate } from "../config/gemini.js";
 import dotenv from "dotenv";
 dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
 // Unambiguous Roman Urdu marker words — common function words that won't appear in English
 const URDU_MARKERS =
@@ -31,8 +28,9 @@ Rules:
 Text: "${urduScriptText}"`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const romanUrdu = result.response.text().trim();
+    const romanUrdu = (
+      await generate(prompt, { model: "gemini-3.1-flash-lite-preview" })
+    ).trim();
     console.log(`🔤 Urdu script → Roman Urdu`);
     console.log(`   Script:  "${urduScriptText}"`);
     console.log(`   Roman:   "${romanUrdu}"`);
@@ -63,8 +61,9 @@ Output ONLY the English translation, nothing else.
 Text: "${text}"`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const translatedText = result.response.text().trim();
+    const translatedText = (
+      await generate(prompt, { model: "gemini-2.5-flash-lite" })
+    ).trim();
     console.log(`🌐 Urdu detected — translated for evaluation.`);
     console.log(`   Original:    "${text}"`);
     console.log(`   Translated:  "${translatedText}"`);

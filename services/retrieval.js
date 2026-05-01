@@ -1,28 +1,15 @@
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generate, embedText } from "../config/gemini.js";
 import { prisma } from "../config/db.js";
 import similarity from "compute-cosine-similarity";
 import dotenv from "dotenv";
 dotenv.config();
-
-// 1. Initialize Models
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "gemini-embedding-001", // 👈 force v1
-});
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-
-// CHANGE 1: Use the stable model to prevent 404 errors
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
-
-// CHANGE 2: Removed the manual 'function cosineSimilarity' (Dead code)
 
 /**
  * 🔍 Retrieve Context
  * Accepts an optional pre-computed qVector to avoid a duplicate embedding call.
  */
 async function retrieveContext(question, existingQVector = null) {
-  const qVector = existingQVector || await embeddings.embedQuery(question);
+  const qVector = existingQVector || (await embedText(question));
   const vectorString = `[${qVector.join(",")}]`;
 
   // Get Top 3 chunks
@@ -40,7 +27,13 @@ async function retrieveContext(question, existingQVector = null) {
 /**
  * 🤖 The Judge: LLM Evaluation
  */
-async function evaluateWithLLM(question, answer, contextString, roleContext, difficulty = "Medium") {
+async function evaluateWithLLM(
+  question,
+  answer,
+  contextString,
+  roleContext,
+  difficulty = "Medium",
+) {
   const prompt = `
     You are a Technical Interviewer evaluating a candidate.
 
@@ -88,8 +81,9 @@ async function evaluateWithLLM(question, answer, contextString, roleContext, dif
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const text = await generate(prompt, {
+      model: "gemini-2.5-flash",
+    });
     const jsonStr = text
       .replace(/```json/g, "")
       .replace(/```/g, "")
@@ -104,7 +98,12 @@ async function evaluateWithLLM(question, answer, contextString, roleContext, dif
 /**
  * 🚀 Main Function
  */
-async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "Medium") {
+async function evaluateAnswer(
+  question,
+  userAnswer,
+  roleContext,
+  difficulty = "Medium",
+) {
   console.log("\n" + "=".repeat(60));
   console.log("🤖 HIRELY AI JUDGE");
   console.log("=".repeat(60));
@@ -115,8 +114,8 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
     // 1. Embed question + answer in parallel
     console.log("\n📊 Calculating Semantic Similarity...");
     const [qVector, aVector] = await Promise.all([
-      embeddings.embedQuery(question),
-      embeddings.embedQuery(userAnswer),
+      embedText(question),
+      embedText(userAnswer),
     ]);
 
     const rawSimilarity = similarity(qVector, aVector) || 0;
@@ -152,7 +151,6 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
       console.log("   --------------------------------------------------");
       contextDocs.forEach((doc, i) => {
         const source = doc.metadata?.source || "Unknown";
-        // Clean newlines for preview
         const preview = doc.content.replace(/\n/g, " ").substring(0, 80);
         console.log(`   [Chunk ${i + 1}] 🔗 ${source}`);
         console.log(`              📝 "${preview}..."`);
@@ -160,11 +158,10 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
       console.log("   --------------------------------------------------");
     }
 
-    // Combine text for the LLM
     const contextString = contextDocs.map((d) => d.content).join("\n\n");
 
     // 4. LLM Grading
-    console.log("\n⚖️  Sending to Gemini 1.5 for Grading...");
+    console.log("\n⚖️  Sending to Gemini 3.0 for Grading...");
     const evaluation = await evaluateWithLLM(
       question,
       userAnswer,

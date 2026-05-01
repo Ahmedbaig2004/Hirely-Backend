@@ -1,4 +1,4 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { generateStructured } from "../config/gemini.js";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
@@ -14,14 +14,6 @@ const TIMEOUT_MS = 10000; // 10s timeout per test case execution
 const BATCH_SIZE = 5;
 const BATCH_DELAY_MS = 200;
 const PASS_THRESHOLD = 28;
-
-// ─── Gemini Setup ────────────────────────────────────────────────────────────
-
-const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  temperature: 0.2,
-  apiKey: process.env.GOOGLE_API_KEY,
-});
 
 // ─── Zod Schema ──────────────────────────────────────────────────────────────
 
@@ -210,7 +202,6 @@ function runPython(solutionPath, stdin, expectedOutput) {
 
         if (err) {
           if (err.killed) {
-            // Timeout
             resolve({
               passed: false,
               statusDescription: `Time Limit Exceeded (>${TIMEOUT_MS / 1000}s)`,
@@ -219,7 +210,6 @@ function runPython(solutionPath, stdin, expectedOutput) {
               time: elapsed,
             });
           } else {
-            // Runtime error
             resolve({
               passed: false,
               statusDescription: `Runtime Error: ${err.message.split("\n")[0]}`,
@@ -245,7 +235,6 @@ function runPython(solutionPath, stdin, expectedOutput) {
       }
     );
 
-    // Feed stdin
     if (child.stdin) {
       child.stdin.write(stdin);
       child.stdin.end();
@@ -255,10 +244,8 @@ function runPython(solutionPath, stdin, expectedOutput) {
 
 /**
  * Verify all test cases by running the master solution with local Python.
- * Writes solution to a temp file once, runs it 30 times with different stdin.
  */
 async function verifyAllTestCases(masterSolution, testCases) {
-  // Write solution to a temp file
   const tmpDir = await mkdtemp(join(tmpdir(), "hirely-tc-"));
   const solutionPath = join(tmpDir, "solution.py");
   await writeFile(solutionPath, masterSolution, "utf-8");
@@ -285,7 +272,6 @@ async function verifyAllTestCases(masterSolution, testCases) {
       }
     }
   } finally {
-    // Cleanup temp file
     try { await unlink(solutionPath); } catch { /* ignore */ }
   }
 
@@ -296,7 +282,6 @@ async function verifyAllTestCases(masterSolution, testCases) {
 
 async function callGemini(question, retryContext = null) {
   const prompt = buildPrompt(question, retryContext);
-  const structuredLlm = llm.withStructuredOutput(GenerationSchema);
 
   const backoffs = [0, 5000, 15000, 45000];
   for (let attempt = 0; attempt < backoffs.length; attempt++) {
@@ -305,7 +290,7 @@ async function callGemini(question, retryContext = null) {
       await delay(backoffs[attempt]);
     }
     try {
-      return await structuredLlm.invoke(prompt);
+      return await generateStructured(prompt, GenerationSchema, { temperature: 0.2 });
     } catch (err) {
       const isRateLimit = err.message?.includes("429") || err.message?.includes("RESOURCE_EXHAUSTED");
       if (isRateLimit && attempt < backoffs.length - 1) continue;
@@ -317,7 +302,6 @@ async function callGemini(question, retryContext = null) {
 // ─── Main Export ─────────────────────────────────────────────────────────────
 
 export async function generateAndVerifyTestCases(question) {
-  // Attempt 1: Generate with Gemini
   let generation;
   try {
     generation = await callGemini(question);
@@ -333,7 +317,6 @@ export async function generateAndVerifyTestCases(question) {
 
   generation.masterSolution = sanitizeSolution(generation.masterSolution);
 
-  // Validate structure
   const validation = validateGeneration(generation);
   if (!validation.valid) {
     console.log(`    Validation errors: ${validation.errors.join(", ")}`);
@@ -362,7 +345,6 @@ export async function generateAndVerifyTestCases(question) {
     }
   }
 
-  // Verify by running locally
   console.log(`    Verifying 30 test cases with local Python...`);
   const results = await verifyAllTestCases(
     generation.masterSolution,
@@ -386,7 +368,6 @@ export async function generateAndVerifyTestCases(question) {
     };
   }
 
-  // Retry with failure context
   console.log(`    Below threshold (${passed.length}/${PASS_THRESHOLD}). Retrying...`);
   const retryContext = failed
     .map((f) => {

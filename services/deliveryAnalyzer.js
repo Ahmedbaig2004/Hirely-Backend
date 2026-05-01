@@ -1,13 +1,8 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { generateStructured } from "../config/gemini.js";
 import { z } from "zod";
 import dotenv from "dotenv";
 
 dotenv.config();
-
-const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: process.env.GOOGLE_API_KEY,
-});
 
 const DeliveryAnalysisSchema = z.object({
   deliveryScore: z
@@ -114,9 +109,7 @@ ${fillerInstructions}
 - The topImprovement should be something the candidate can practice and fix before their next interview.`;
 
   try {
-    const structuredLlm = llm.withStructuredOutput(DeliveryAnalysisSchema);
-    const result = await structuredLlm.invoke(prompt);
-    return result;
+    return await generateStructured(prompt, DeliveryAnalysisSchema);
   } catch (e) {
     console.error("Delivery analysis failed:", e.message);
     return null;
