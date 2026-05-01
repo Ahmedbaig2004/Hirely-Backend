@@ -247,8 +247,13 @@ async def lifespan(app: FastAPI):
         )
         print("   openSMILE eGeMAPSv02 initialized")
 
-        models['shap_explainer'] = shap.TreeExplainer(models['final_model'])
-        print("   SHAP TreeExplainer ready")
+        # Load the calibration-aware proxy model for SHAP explanations.
+        # This model was trained on the same features as final_model but
+        # predicts calibrated scores — so SHAP values are in the same
+        # space the user actually sees (0–1 calibrated), not raw XGBoost space.
+        models['shap_proxy'] = joblib.load("models/shap_proxy_calibrated.pkl")
+        models['shap_explainer'] = shap.TreeExplainer(models['shap_proxy'])
+        print("   SHAP TreeExplainer ready (calibration-aware proxy)")
 
         models['beta_params'] = joblib.load("models/beta_params_production.pkl")
         bp = models['beta_params']
@@ -374,28 +379,25 @@ def compute_wpm(audio_path: str, transcript_text: str | None) -> float:
 # ============================================================
 # SHAP EXPLANATION ENGINE
 # ============================================================
-def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
+def generate_shap_explanations(X: pd.DataFrame, calibrated_score: float) -> dict:
     """
-    Compute per-prediction SHAP values using TreeExplainer and convert
-    the top 5 contributors into actionable coaching advice.
+    Compute per-prediction SHAP values using the calibration-aware proxy model.
+    SHAP values are now in calibrated score space (0–1), so thresholds and
+    coaching tips directly correspond to what the user sees on their report.
 
-    Each contributor shows:
-      - which feature mattered most for THIS prediction
-      - whether it helped or hurt the score
-      - a concrete coaching tip the candidate can act on
+    The proxy model was trained on the same features as the base XGBoost model
+    but with calibrated scores as targets — so feature rankings are preserved
+    but the magnitudes reflect the calibrated output space.
     """
     try:
         explainer = models['shap_explainer']
-        shap_values = explainer.shap_values(X)   # shape: (1, 45) for regression
-        # expected_value is ndarray([scalar]) for XGBRegressor — extract the float
+        shap_values = explainer.shap_values(X)   # shape: (1, 45)
         ev = explainer.expected_value
         base_value = float(ev[0]) if hasattr(ev, '__len__') else float(ev)
 
         contributors = []
         for i, feat_name in enumerate(models['top_features']):
             sv = float(shap_values[0][i])
-            # If the impact is less than 0.5% (0.005), skip this feature.
-            # This prevents the AI from giving advice on "noise."
             if abs(sv) < 0.008:
                 continue
             fval = float(X.iloc[0, i])
@@ -417,15 +419,27 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
 
         contributors.sort(key=lambda x: x["impact_magnitude"], reverse=True)
 
-        # Only include improvements with meaningful negative impact (> 2% of score, aligned with category threshold)
-        significant_neg = [c for c in contributors if c["direction"] == "decreased" and c["impact_magnitude"] > 0.02]
-        # Cap at top 3 strengths — prevents dilution with low-R² model
+        # Thresholds now operate in calibrated space.
+        all_neg = [
+            c for c in contributors
+            if c["direction"] == "decreased" and c["impact_magnitude"] > 0.03
+        ]
+
+        # Score-aware gating
+        if calibrated_score >= 0.70:
+            significant_neg = all_neg[:1]
+        elif calibrated_score >= 0.50:
+            significant_neg = all_neg[:2]
+        else:
+            significant_neg = all_neg
+
         significant_pos = [c for c in contributors if c["direction"] == "increased"][:3]
+
         top_contributors = significant_neg + significant_pos
 
         return {
             "base_value": round(base_value, 4),
-            "predicted_value": round(predicted_score, 4),
+            "predicted_value": round(calibrated_score, 4),   # now calibrated
             "top_contributors": top_contributors,
             "top_improvements": significant_neg,
             "top_strengths": significant_pos,
@@ -439,7 +453,7 @@ def generate_shap_explanations(X: pd.DataFrame, predicted_score: float) -> dict:
         logger.warning(f"SHAP explanation failed: {e}")
         return {
             "base_value": 0.0,
-            "predicted_value": predicted_score,
+            "predicted_value": calibrated_score,
             "top_contributors": [],
             "all_shap_values": {},
         }
@@ -489,7 +503,29 @@ for _cat_key, _cat_def in SHAP_CATEGORIES.items():
         _FEATURE_TO_CATEGORY[_feat] = _cat_def["label"]
 
 
-def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
+# helper function
+def _severity_status(shap_sum: float, calibrated_score: float) -> str:
+    if shap_sum > 0.02:
+        return "Helped Your Score"
+    if shap_sum >= -0.02:
+        return "Minimal Impact"
+
+    # Negative case — softened based on score
+    if calibrated_score >= 0.75:
+        return "Polish Opportunity"
+    elif calibrated_score >= 0.60:
+        return "Refinement Opportunity"
+    elif calibrated_score >= 0.50:
+        return "Needs Attention"
+    else:
+        return "Held Back Your Score"
+
+
+def _build_category_sentiments(
+    all_shap_values: dict,
+    wpm: float = 0.0,
+    calibrated_score: float = 0.5
+) -> dict:
     """
     For each category, sum the SHAP contributions of its features,
     determine status, and identify the single biggest driver with
@@ -501,12 +537,7 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
         feat_shaps = {f: all_shap_values.get(f, 0.0) for f in cat["features"]}
         shap_sum = sum(feat_shaps.values())
 
-        if shap_sum > 0.02:
-            status = "Helped Your Score"
-        elif shap_sum < -0.02:
-            status = "Held Back Your Score"
-        else:
-            status = "Minimal Impact"
+        status = _severity_status(shap_sum, calibrated_score)
 
         top_feat = max(feat_shaps, key=lambda f: abs(feat_shaps[f]))
         top_sv = feat_shaps[top_feat]
@@ -519,11 +550,13 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
         else:
             direction = "neutral"
 
-        tip = FEATURE_TIPS.get(top_feat, {}).get(
-            direction if direction != "neutral" else "positive",
-            get_generic_tip(label, top_sv >= 0),
-        )
-
+        if status == "Minimal Impact":
+            tip = None
+        else:
+            tip = FEATURE_TIPS.get(top_feat, {}).get(
+                direction if direction != "neutral" else "positive",
+                get_generic_tip(label, top_sv >= 0),
+            )
         categories[key] = {
             "label": cat["label"],
             "status": status,
@@ -537,6 +570,33 @@ def _build_category_sentiments(all_shap_values: dict, wpm: float = 0.0) -> dict:
                 "tip": tip,
             },
         }
+
+        # ============================================================
+        # CATEGORY GATING (CRITICAL UX LAYER)
+        # ============================================================
+
+        negative_cats = [
+            (key, data)
+            for key, data in categories.items()
+            if data["shap_sum"] < -0.02
+        ]
+
+        # Sort by most negative
+        negative_cats.sort(key=lambda x: x[1]["shap_sum"])
+
+        # Limit based on score
+        if calibrated_score >= 0.75:
+            allowed_neg = 1
+        elif calibrated_score >= 0.60:
+            allowed_neg = 2
+        else:
+            allowed_neg = len(negative_cats)
+
+        # Downgrade extra negatives
+        for i, (key, data) in enumerate(negative_cats):
+            if i >= allowed_neg:
+                categories[key]["status"] = "Minimal Impact"
+                
     # --- 4th Box: Speaking Pace (WPM-based, not SHAP) ---
     if wpm > 0:
         if wpm < 110:
@@ -638,8 +698,10 @@ def predict_confidence(audio_path: str, transcript_text: str | None = None) -> d
     confidence_score = beta_calibrate(clipped_raw)
     logger.info(f"Score calibration: raw={clipped_raw:.4f} → calibrated={confidence_score:.4f}")
 
-    # 5 — SHAP explanations (use raw score, not rescaled)
-    shap_result = generate_shap_explanations(X, clipped_raw)
+    # 5 — SHAP explanations using calibrated score.
+    # The proxy model's SHAP values are already in calibrated space,
+    # so we pass confidence_score (not clipped_raw) as the reference point.
+    shap_result = generate_shap_explanations(X, confidence_score)
 
     # 6 — WPM (display only)
     wpm = compute_wpm(audio_path, transcript_text)
@@ -689,6 +751,13 @@ async def process_voice_analysis(
         voiced_fraction = min(1.0, float(vsps) * float(mvsl))
         pause_ratio_approx = max(0.0, round(1.0 - voiced_fraction, 4))
 
+
+        # BEFORE result dict
+        _max_improvements = (
+            1 if prediction["confidence_score"] >= 0.70
+            else 2 if prediction["confidence_score"] >= 0.50
+            else len(shap["top_improvements"])
+        )
         result = {
             "interviewTurnId": turn_id,
 
@@ -724,11 +793,15 @@ async def process_voice_analysis(
                 # featureExplanations for existing frontend "Why this prediction" section
                 "featureExplanations": [
                     c["explanation"]
-                    for c in shap["top_contributors"]
+                    for c in shap["top_improvements"][:_max_improvements]
                     if c.get("explanation")
                 ],
                 # SHAP-driven category sentiments for frontend UI boxes
-                "ui_sync": _build_category_sentiments(shap["all_shap_values"], prediction["wpm"]),
+                "ui_sync": _build_category_sentiments(
+                    shap["all_shap_values"],
+                    prediction["wpm"],
+                    prediction["confidence_score"],   # PASS THIS
+                ),
                 # Coaching summary for report
                 "finalSummary": generate_final_summary(
                     prediction["confidence_score"],

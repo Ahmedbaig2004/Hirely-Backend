@@ -1,4 +1,4 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { generateStructured, generate } from "../config/gemini.js";
 import { z } from "zod";
 import crypto from "crypto";
 import pdf from "pdf-parse/lib/pdf-parse.js";
@@ -14,13 +14,6 @@ const redisClient = new Redis({
 function hashBuffer(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
-
-// 1. Initialize Gemini
-const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  temperature: 0.2,
-  apiKey: process.env.GOOGLE_API_KEY,
-});
 
 // 2. Define Output Structure
 const AnalysisSchema = z.object({
@@ -44,7 +37,7 @@ const AnalysisSchema = z.object({
       })
     )
     .length(4)
-    .describe("Exactly 4 interview questions"), // Matched with prompt below
+    .describe("Exactly 4 interview questions"),
 });
 
 // Shared question-only schema for Technical / Behavioral modes
@@ -61,7 +54,7 @@ const QuestionsOnlySchema = z.object({
 
 // 3. Resume Validation
 async function validateResumeContent(text) {
-  const check = await llm.invoke(
+  const answer = await generate(
     `You are a document classifier. Read the following text extracted from a PDF and determine if it is a professional resume or CV.
 
 A resume typically contains: work experience, education, skills, contact info, job titles, or project descriptions.
@@ -72,10 +65,10 @@ If this IS a resume/CV, reply "yes".
 Reply with ONLY "yes" or "no".
 
 TEXT:
-${text.substring(0, 3000)}`
+${text.substring(0, 3000)}`,
+    { temperature: 0.2 }
   );
-  const answer = check.content.toString().trim().toLowerCase();
-  return answer.startsWith("yes");
+  return answer.trim().toLowerCase().startsWith("yes");
 }
 
 // 4. Main Function
@@ -126,10 +119,8 @@ export async function generateInterviewContext(resumeBuffer, jobDescription) {
 
   console.log("🤖 Generating Gap Analysis & Questions...");
 
-  const structuredLlm = llm.withStructuredOutput(AnalysisSchema);
-
   const prompt = `
-  You are an expert Technical Recruiter and Engineering Manager. Your task is to analyze the Candidate’s Resume in relation to the provided Job Description. Your primary goal is to identify any "missing skills: or "underrepresented qualifications" in the resume compared to the job description, but "also generate interview questions that cover the full scope" of the job description—ensuring that key areas of the role are assessed, not just the gaps.
+  You are an expert Technical Recruiter and Engineering Manager. Your task is to analyze the Candidate's Resume in relation to the provided Job Description. Your primary goal is to identify any "missing skills: or "underrepresented qualifications" in the resume compared to the job description, but "also generate interview questions that cover the full scope" of the job description—ensuring that key areas of the role are assessed, not just the gaps.
 
 JOB DESCRIPTION:
 ${jobDescription}
@@ -151,7 +142,7 @@ TASK INSTRUCTIONS:
 
 2. "Generate Exactly 4 Interview Questions":
    - "First Question": Begin with a "general introductory question": "Tell us about yourself with the person name got from the resume."
-   
+
    - "Remaining 4 Questions": Generate "3 technical interview questions" based on the following guidelines:
       - Donot explictly say that it is the final question on the final question
 
@@ -169,7 +160,7 @@ TASK INSTRUCTIONS:
        - Return the data strictly adhering to the JSON schema provided.
   `;
 
-  return await structuredLlm.invoke(prompt);
+  return await generateStructured(prompt, AnalysisSchema, { temperature: 0.2 });
 }
 
 /**
@@ -178,7 +169,6 @@ TASK INSTRUCTIONS:
  */
 export async function generateTechnicalQuestions(stack, difficulty, count) {
   console.log(`🤖 Generating ${count} ${difficulty} technical questions for ${stack}...`);
-  const structuredLlm = llm.withStructuredOutput(QuestionsOnlySchema);
 
   const prompt = `
 You are a senior engineering interviewer conducting a ${difficulty}-level technical interview focused on ${stack}.
@@ -199,7 +189,7 @@ Generate exactly ${count} interview questions following these rules:
 Return exactly ${count} questions in the schema.
 `;
 
-  const result = await structuredLlm.invoke(prompt);
+  const result = await generateStructured(prompt, QuestionsOnlySchema, { temperature: 0.2 });
   return result.questions;
 }
 
@@ -209,7 +199,6 @@ Return exactly ${count} questions in the schema.
  */
 export async function generateBehavioralQuestions(difficulty, count) {
   console.log(`🤖 Generating ${count} ${difficulty} behavioral questions...`);
-  const structuredLlm = llm.withStructuredOutput(QuestionsOnlySchema);
 
   const competencies = [
     "leadership and ownership",
@@ -245,6 +234,6 @@ Generate exactly ${count} behavioral interview questions following these rules:
 Return exactly ${count} questions in the schema.
 `;
 
-  const result = await structuredLlm.invoke(prompt);
+  const result = await generateStructured(prompt, QuestionsOnlySchema, { temperature: 0.2 });
   return result.questions;
 }

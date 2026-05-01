@@ -1,14 +1,9 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { prisma } from "../config/db.js"; // 👈 CHANGE 1: Use your central adapter
+import { embedText, embedTexts } from "../config/gemini.js";
+import { prisma } from "../config/db.js";
 import * as cheerio from "cheerio";
 import dotenv from "dotenv";
 dotenv.config();
-
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "gemini-embedding-001",
-  // 👈 force v1
-});
 
 // CONFIG
 const PAGE_BATCH_SIZE = 5; // Reduced from 10
@@ -144,7 +139,7 @@ const targets = [
 async function embedWithRetry(texts, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const vectors = await embeddings.embedDocuments(texts);
+      const vectors = await embedTexts(texts);
 
       // Debug: log what came back
       const emptyCount = vectors.filter((v) => !v || v.length === 0).length;
@@ -262,7 +257,7 @@ async function main() {
   // ✅ Sanity check: confirm embedding API works before doing anything
   console.log("\n🔬 Testing embedding API...");
   try {
-    const testVec = await embeddings.embedQuery("hello world test");
+    const testVec = await embedText("hello world test");
     if (!testVec || testVec.length === 0)
       throw new Error("Empty vector returned");
     console.log(`✅ Embedding API working! Dimensions: ${testVec.length}\n`);
