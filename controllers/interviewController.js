@@ -709,6 +709,7 @@ export const finalizeInterview = async (req, res) => {
                         turn.videoAnalysis.confidenceLabelText,
                       rawScore: turn.videoAnalysis.rawScore,
                       modelVersion: turn.videoAnalysis.modelVersion,
+                      rawFeatures: turn.videoAnalysis.groupResults ?? null,
                       status: "completed",
                       processingTimeMs: turn.videoAnalysis.processingTimeMs,
                       processedAt: new Date(turn.videoAnalysis.processedAt),

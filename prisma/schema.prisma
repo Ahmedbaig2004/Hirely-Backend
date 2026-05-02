@@ -114,6 +114,7 @@ model VideoAnalysis {
   confidenceLabelText String?
   rawScore            Float?
   modelVersion        String?
+  rawFeatures         Json?
 
   status              String   @default("pending")
   errorMessage        String?
