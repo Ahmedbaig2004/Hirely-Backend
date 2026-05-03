@@ -20,6 +20,8 @@ model Interview {
   userId         String   // <--- LINK TO SUPABASE USER ID
   finalScore     Float?
   finalFeedback  Json?    // Store the "Final Report" JSON here
+  status         String   @default("processing")
+  errorLog       String?
   createdAt      DateTime @default(now())
   
   // Link to Candidate (Optional for now if you don't have auth)
