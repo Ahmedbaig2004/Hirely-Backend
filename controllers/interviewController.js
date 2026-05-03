@@ -579,7 +579,23 @@ async function doFinalization(sessionId, session) {
           ? JSON.parse(videoRaw)
           : videoRaw
         : null;
-      return { ...turn, voiceAnalysis, videoAnalysis };
+      const S_audio = voiceAnalysis?.confidenceLevel ?? null;
+      const S_video = videoAnalysis?.confidenceLevel ?? null;
+      const W_AUDIO = 0.5;
+      const W_VIDEO = 0.5;
+      let fusedConfidence = null;
+
+      if (S_audio !== null && S_video !== null) {
+        fusedConfidence = parseFloat(
+          (W_AUDIO * S_audio + W_VIDEO * S_video).toFixed(4),
+        );
+      } else if (S_audio !== null) {
+        fusedConfidence = S_audio;
+      } else if (S_video !== null) {
+        fusedConfidence = S_video;
+      }
+
+      return { ...turn, voiceAnalysis, videoAnalysis, fusedConfidence };
     });
 
     const prefetchedVoiceData = enrichedHistory
