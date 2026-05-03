@@ -5,6 +5,9 @@ import { getVoiceAnalysesForInterview } from "./voiceAnalysisHelper.js";
 
 dotenv.config();
 
+const W_AUDIO = 0.5;
+const W_VIDEO = 0.5;
+
 const NextQuestionSchema = z.object({
   question: z.string(),
   topic: z.string(),
@@ -322,6 +325,29 @@ export async function generateFinalReport(
     ? videoAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
       videoAnalyses.length
     : null;
+  const fusedConfidenceValues = history
+    .map((turn) => {
+      const S_audio = turn.voiceAnalysis?.confidenceLevel ?? null;
+      const S_video = turn.videoAnalysis?.confidenceLevel ?? null;
+
+      if (S_audio !== null && S_video !== null) {
+        return W_AUDIO * S_audio + W_VIDEO * S_video;
+      }
+      if (S_audio !== null) return S_audio;
+      if (S_video !== null) return S_video;
+      return null;
+    })
+    .filter((score) => score !== null);
+  const fusedScore =
+    fusedConfidenceValues.length > 0
+      ? parseFloat(
+          (
+            (fusedConfidenceValues.reduce((sum, score) => sum + score, 0) /
+              fusedConfidenceValues.length) *
+            100
+          ).toFixed(2),
+        )
+      : null;
 
   const prompt = `
     You are an expert Technical Hiring Manager.
@@ -416,6 +442,7 @@ export async function generateFinalReport(
       technical: parseFloat(technicalScore.toFixed(1)),
       voice: voiceScore !== null ? parseFloat(voiceScore.toFixed(1)) : null,
       video: videoScore !== null ? parseFloat(videoScore.toFixed(1)) : null,
+      fusedScore,
       delivery:
         deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
       contentQuality: parseFloat(contentQuality.toFixed(1)),
