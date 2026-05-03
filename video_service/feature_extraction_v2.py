@@ -5,11 +5,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
+import logging
+import subprocess
 import numpy as np
 from copy import deepcopy
+from pathlib import Path
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["GLOG_minloglevel"]     = "3"
+
+logger = logging.getLogger(__name__)
 
 try:
     import mediapipe as mp
@@ -20,6 +25,11 @@ try:
     from decord import VideoReader, cpu
 except ImportError:
     raise ImportError("Run: pip install decord")
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -229,8 +239,8 @@ class SmileExtractor:
 # FRAME EXTRACTOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def extract_all_frames(video_path):
-    """Extract ALL frames at TARGET_FPS — no cap on total count."""
+def _decord_extract(video_path: Path):
+    """Extract frames using decord (fast path). Returns RGB uint8 array."""
     vr         = VideoReader(str(video_path), ctx=cpu(0), width=TARGET_WIDTH, height=TARGET_HEIGHT)
     native_fps = vr.get_avg_fps()
     total      = len(vr)
@@ -241,6 +251,93 @@ def extract_all_frames(video_path):
         indices.append(min(round(i), total - 1))
         i += step
     return vr.get_batch(indices).asnumpy()   # RGB uint8
+
+
+def _remux_webm(video_path: Path) -> Path:
+    """
+    Remux a WebM file with ffmpeg (stream copy) to fix broken container metadata.
+    Browser MediaRecorder often omits duration/seek headers — this regenerates them.
+    Returns path to fixed file; caller must delete it after use.
+    """
+    fixed_path = video_path.with_suffix(".fixed.webm")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-c", "copy",
+        "-fflags", "+genpts",
+        str(fixed_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=30, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg remux failed: {result.stderr[:400]}")
+    return fixed_path
+
+
+def _opencv_extract(video_path: Path):
+    """Last-resort frame extraction using OpenCV. Returns RGB uint8 array."""
+    if cv2 is None:
+        raise RuntimeError("opencv-python not installed; cannot use OpenCV fallback")
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"OpenCV cannot open: {video_path}")
+    try:
+        native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        step       = native_fps / TARGET_FPS
+        frames     = []
+        idx        = 0.0
+        while True:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, round(idx))
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.resize(frame, (TARGET_WIDTH, TARGET_HEIGHT))
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames.append(frame)
+            idx += step
+        if not frames:
+            raise RuntimeError("OpenCV extracted zero frames")
+        return np.array(frames, dtype=np.uint8)
+    finally:
+        cap.release()
+
+
+def extract_all_frames(video_path):
+    """
+    Extract ALL frames at TARGET_FPS with layered fallback for broken WebM metadata.
+
+    Layer 1 — decord direct (fast, zero overhead for well-formed files)
+    Layer 2 — ffmpeg remux + decord (fixes missing duration/seek headers from MediaRecorder)
+    Layer 3 — OpenCV (last resort if ffmpeg unavailable or file is truly corrupt)
+
+    Returns RGB uint8 ndarray.
+    """
+    video_path   = Path(video_path)
+    remuxed_path = None
+
+    # Layer 1: try decord directly
+    try:
+        frames = _decord_extract(video_path)
+        logger.info(f"[frame-extractor] method=decord file={video_path.name}")
+        return frames
+    except Exception as e:
+        logger.warning(f"[frame-extractor] decord FAILED ({e}) — trying ffmpeg remux")
+
+    # Layer 2: remux with ffmpeg then retry decord
+    try:
+        remuxed_path = _remux_webm(video_path)
+        frames       = _decord_extract(remuxed_path)
+        logger.info(f"[frame-extractor] method=ffmpeg+decord file={video_path.name}")
+        return frames
+    except Exception as e:
+        logger.warning(f"[frame-extractor] ffmpeg+decord FAILED ({e}) — falling back to OpenCV")
+    finally:
+        if remuxed_path and remuxed_path.exists():
+            remuxed_path.unlink()
+
+    # Layer 3: OpenCV
+    frames = _opencv_extract(video_path)
+    logger.info(f"[frame-extractor] method=opencv file={video_path.name}")
+    return frames
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

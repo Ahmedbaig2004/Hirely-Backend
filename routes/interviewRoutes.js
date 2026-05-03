@@ -7,6 +7,7 @@ import {
   getVoiceProgress,
   finalizeInterview,
   getFinalizeStatus,
+  cancelInterview,
 } from "../controllers/interviewController.js";
 
 const router = express.Router();
@@ -49,5 +50,8 @@ router.post("/finalize-interview", finalizeInterview);
 
 // Poll finalization status
 router.get("/finalize-status/:sessionId", getFinalizeStatus);
+
+// Cancel active interview — deletes Redis session
+router.delete("/:sessionId", cancelInterview);
 
 export default router;

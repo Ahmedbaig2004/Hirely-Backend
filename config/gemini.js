@@ -6,7 +6,7 @@ dotenv.config();
 export const ai = new GoogleGenAI({
   vertexai: true,
   project: process.env.GCP_PROJECT_ID,
-  location: "global", // GenAI models are available globally, but you can specify a region if needed
+  location: process.env.GCP_LOCATION || "us-central1",
 });
 
 function cleanSchema(schema) {

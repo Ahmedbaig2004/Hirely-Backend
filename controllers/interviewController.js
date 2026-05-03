@@ -9,10 +9,7 @@ import {
   getNextQuestion,
   generateFinalReport,
 } from "../services/interviewer.js";
-import {
-  evaluateAnswer,
-  evaluateAnswerBatch,
-} from "../services/retrieval.js";
+import { evaluateAnswer, evaluateAnswerBatch } from "../services/retrieval.js";
 import { analyzeDelivery } from "../services/deliveryAnalyzer.js";
 import { prisma } from "../config/db.js";
 import { generateAudio } from "../services/tts.js";
@@ -447,7 +444,7 @@ async function doFinalization(sessionId, session) {
       .filter((idx) => idx !== null);
 
     if (audioTurnIndices.length > 0) {
-      const MAX_RETRIES = 10;
+      const MAX_RETRIES = 60;
       const RETRY_DELAY_MS = 1000;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const checks = await Promise.all(
@@ -474,7 +471,7 @@ async function doFinalization(sessionId, session) {
       .filter((idx) => idx !== null);
 
     if (videoTurnIndices.length > 0) {
-      const MAX_RETRIES = 15;
+      const MAX_RETRIES = 60;
       const RETRY_DELAY_MS = 1000;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const checks = await Promise.all(
@@ -827,6 +824,24 @@ export const finalizeInterview = async (req, res) => {
   } catch (e) {
     console.error("Finalize kickoff error:", e);
     return res.status(500).json({ error: "Failed to start finalization" });
+  }
+};
+
+/**
+ * Cancel an active interview — deletes the Redis session so the user
+ * can start fresh without leaving orphaned state.
+ */
+export const cancelInterview = async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+  try {
+    await stateManager.deleteSession(sessionId);
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("Cancel interview error:", e);
+    return res.status(500).json({ error: "Failed to cancel interview" });
   }
 };
 
