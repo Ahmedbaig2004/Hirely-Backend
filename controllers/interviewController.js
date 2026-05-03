@@ -9,7 +9,10 @@ import {
   getNextQuestion,
   generateFinalReport,
 } from "../services/interviewer.js";
-import { evaluateAnswer } from "../services/retrieval.js";
+import {
+  evaluateAnswer,
+  evaluateAnswerBatch,
+} from "../services/retrieval.js";
 import { analyzeDelivery } from "../services/deliveryAnalyzer.js";
 import { prisma } from "../config/db.js";
 import { generateAudio } from "../services/tts.js";
@@ -57,11 +60,9 @@ export const initInterview = async (req, res) => {
         return res.status(400).json({ error: "Job description is required" });
       }
       if (jobDescription.length > 10000) {
-        return res
-          .status(400)
-          .json({
-            error: "Job description must be less than 10000 characters",
-          });
+        return res.status(400).json({
+          error: "Job description must be less than 10000 characters",
+        });
       }
     } else if (interviewType === "TECHNICAL") {
       const { stack, difficulty, questionCount } = req.body;
@@ -113,7 +114,9 @@ export const initInterview = async (req, res) => {
     const firstQuestion = analysis.questions[0];
     const interviewerVoice =
       req.body.interviewerVoice === "male" ? "male" : "female";
-    const interviewMode = ["chat", "audio", "video"].includes(req.body.interviewMode)
+    const interviewMode = ["chat", "audio", "video"].includes(
+      req.body.interviewMode,
+    )
       ? req.body.interviewMode
       : "audio";
 
@@ -433,27 +436,12 @@ export const getVoiceProgress = async (req, res) => {
 };
 
 /**
- * Finalize interview - wait for voice analyses, generate report, persist to DB
+ * Background finalization worker — does the heavy lifting after the endpoint returns.
  */
-export const finalizeInterview = async (req, res) => {
-  const { sessionId } = req.body;
-  if (!sessionId) {
-    return res.status(400).json({ error: "sessionId is required" });
-  }
+async function doFinalization(sessionId, session) {
   const uploadDir = path.join(process.cwd(), "uploads", sessionId);
-
-  // Hoisted so the finally block can reference session for cleanup
-  let session = null;
-
   try {
-    // 1. Read session state from Redis
-    session = await stateManager.getSession(sessionId);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found or expired" });
-    }
-
-    // 2. Wait for voice analyses to complete (only for audio turns)
-    // All keys checked in parallel per attempt; max wait reduced to 10s.
+    // 1. Wait for voice analyses to complete (only for audio turns)
     const audioTurnIndices = session.history
       .map((turn, idx) => (turn.answerMode === "audio" ? idx + 1 : null))
       .filter((idx) => idx !== null);
@@ -480,7 +468,7 @@ export const finalizeInterview = async (req, res) => {
       }
     }
 
-    // 2b. Wait for video analyses to complete (only for video turns)
+    // 1b. Wait for video analyses to complete (only for video turns)
     const videoTurnIndices = session.history
       .map((turn, idx) => (turn.answerMode === "video" ? idx + 1 : null))
       .filter((idx) => idx !== null);
@@ -507,9 +495,7 @@ export const finalizeInterview = async (req, res) => {
       }
     }
 
-    // 3. Evaluate all turns in parallel (deferred from interview hot path)
-    // Each turn stored evaluationText (translated if Urdu) and detectedLanguage for this step.
-    // Build role context for evaluation
+    // 2. Evaluate all turns with concurrency control
     const finalInterviewType = session.interviewType || "JOB_SPECIFIC";
     const finalConfig = session.config || {};
     let finalRoleContext;
@@ -522,19 +508,30 @@ export const finalizeInterview = async (req, res) => {
     }
 
     console.log(
-      `⚖️  Evaluating ${session.history.length} turns in parallel...`,
+      `⚖️  Evaluating ${session.history.length} turns (concurrency: 1)...`,
     );
+    await prisma.interview.upsert({
+      where: { id: sessionId },
+      update: {
+        interviewType: finalInterviewType,
+        config: finalConfig || undefined,
+        userId: session.userId,
+        jobDescription: session.jobDescription || null,
+        status: "processing",
+        errorLog: null,
+      },
+      create: {
+        id: sessionId,
+        interviewType: finalInterviewType,
+        config: finalConfig || undefined,
+        userId: session.userId,
+        jobDescription: session.jobDescription || null,
+        status: "processing",
+        errorLog: null,
+      },
+    });
     const [evaluations, deliveryAnalyses] = await Promise.all([
-      Promise.all(
-        session.history.map((turn) =>
-          evaluateAnswer(
-            turn.question,
-            turn.evaluationText || turn.answer,
-            finalRoleContext,
-            turn.difficulty || "Medium",
-          ),
-        ),
-      ),
+      evaluateAnswerBatch(session.history, finalRoleContext),
       Promise.all(
         session.history.map((turn) =>
           analyzeDelivery(
@@ -555,14 +552,13 @@ export const finalizeInterview = async (req, res) => {
       deliveryAnalysis: deliveryAnalyses[idx] ?? null,
     }));
 
-    // 4. Enrich scored history with voice data from Redis (batch fetch — one roundtrip)
+    // 3. Enrich scored history with voice data from Redis
     const voiceKeys = scoredHistory.map(
       (_, index) => `voice_analysis:${sessionId}:${index + 1}`,
     );
     const voiceDataRaw = await Promise.all(
       voiceKeys.map((key) => redisClient.get(key)),
     );
-    // 4b. Enrich with video data from Redis
     const videoKeys = scoredHistory.map(
       (_, index) => `video_analysis:${sessionId}:${index + 1}`,
     );
@@ -586,7 +582,6 @@ export const finalizeInterview = async (req, res) => {
       return { ...turn, voiceAnalysis, videoAnalysis };
     });
 
-    // Pre-extract non-null voice/video records for generateFinalReport to avoid a duplicate Redis read
     const prefetchedVoiceData = enrichedHistory
       .map((turn) => turn.voiceAnalysis)
       .filter((v) => v !== null);
@@ -600,7 +595,7 @@ export const finalizeInterview = async (req, res) => {
     );
     const averageScore = Math.round(totalScore / enrichedHistory.length);
 
-    // 5+6. Generate AI report and upload audio files in parallel (no dependency between them)
+    // 4. Generate AI report and upload audio files in parallel
     console.log(
       `☁️  Uploading ${enrichedHistory.length} audio files to Supabase Storage...`,
     );
@@ -650,16 +645,18 @@ export const finalizeInterview = async (req, res) => {
       })(),
     ]);
 
-    // 6. Persist to PostgreSQL via Prisma
-    await prisma.interview.create({
+    // 5. Persist to PostgreSQL via Prisma
+    await prisma.interview.update({
+      where: { id: sessionId },
       data: {
-        id: sessionId,
         interviewType: finalInterviewType,
         config: finalConfig || undefined,
         userId: session.userId,
         jobDescription: session.jobDescription || null,
         finalScore: averageScore,
         finalFeedback: finalReport,
+        status: "completed",
+        errorLog: null,
         turns: {
           create: enrichedHistory.map((turn, idx) => ({
             question: turn.question,
@@ -709,6 +706,7 @@ export const finalizeInterview = async (req, res) => {
                         turn.videoAnalysis.confidenceLabelText,
                       rawScore: turn.videoAnalysis.rawScore,
                       modelVersion: turn.videoAnalysis.modelVersion,
+                      rawFeatures: turn.videoAnalysis.groupResults ?? null,
                       status: "completed",
                       processingTimeMs: turn.videoAnalysis.processingTimeMs,
                       processedAt: new Date(turn.videoAnalysis.processedAt),
@@ -721,12 +719,42 @@ export const finalizeInterview = async (req, res) => {
     });
 
     console.log(`✅ Interview ${sessionId} finalized and persisted.`);
-    return res.json({ success: true, finalReport });
+
+    // 6. Mark as completed in Redis with the report
+    await redisClient.set(
+      `finalize_status:${sessionId}`,
+      JSON.stringify({
+        status: "completed",
+        finalReport,
+      }),
+      { ex: 600 },
+    );
   } catch (e) {
     console.error("Finalize Error:", e);
-    res.status(500).json({ error: "Failed to finalize interview" });
+    try {
+      await prisma.interview.update({
+        where: { id: sessionId },
+        data: {
+          status: "failed",
+          errorLog: e?.message
+            ? String(e.message).slice(0, 2000)
+            : "Unknown error",
+        },
+      });
+    } catch (updateErr) {
+      console.warn("Failed to mark interview as failed:", updateErr.message);
+    }
+    await redisClient
+      .set(
+        `finalize_status:${sessionId}`,
+        JSON.stringify({
+          status: "failed",
+          error: e.message || "Failed to finalize interview",
+        }),
+        { ex: 600 },
+      )
+      .catch(() => {});
   } finally {
-    // 7. Always cleanup Redis + local audio files, even on error
     try {
       await stateManager.deleteSession(sessionId);
       const cleanupCount =
@@ -742,5 +770,88 @@ export const finalizeInterview = async (req, res) => {
     } catch (cleanupErr) {
       console.warn("⚠️ Cleanup error:", cleanupErr.message);
     }
+  }
+}
+
+/**
+ * Finalize interview - validates session and kicks off background processing.
+ * Returns immediately with { status: "processing" }.
+ */
+export const finalizeInterview = async (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+
+  try {
+    const session = await stateManager.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found or expired" });
+    }
+
+    // Idempotency: don't restart if already completed or in progress
+    const existingRaw = await redisClient.get(`finalize_status:${sessionId}`);
+    if (existingRaw) {
+      const existing =
+        typeof existingRaw === "string" ? JSON.parse(existingRaw) : existingRaw;
+      if (existing.status === "completed" || existing.status === "processing") {
+        return res.json({ success: true, status: existing.status });
+      }
+    }
+
+    // Set initial processing status in Redis (10 min TTL)
+    await redisClient.set(
+      `finalize_status:${sessionId}`,
+      JSON.stringify({
+        status: "processing",
+      }),
+      { ex: 600 },
+    );
+
+    // Fire and forget — background processing
+    doFinalization(sessionId, session).catch(async (err) => {
+      console.error(`Background finalize failed for ${sessionId}:`, err);
+      await redisClient
+        .set(
+          `finalize_status:${sessionId}`,
+          JSON.stringify({
+            status: "failed",
+            error: err?.message || "Finalization failed unexpectedly",
+          }),
+          { ex: 600 },
+        )
+        .catch(() => {});
+    });
+
+    return res.json({ success: true, status: "processing" });
+  } catch (e) {
+    console.error("Finalize kickoff error:", e);
+    return res.status(500).json({ error: "Failed to start finalization" });
+  }
+};
+
+/**
+ * Poll finalization status — returns processing/completed/failed.
+ */
+export const getFinalizeStatus = async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+
+  try {
+    const raw = await redisClient.get(`finalize_status:${sessionId}`);
+    if (!raw) {
+      return res
+        .status(404)
+        .json({ error: "No finalization in progress for this session" });
+    }
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return res.json(data);
+  } catch (e) {
+    console.error("Finalize status error:", e);
+    return res
+      .status(500)
+      .json({ error: "Failed to check finalization status" });
   }
 };

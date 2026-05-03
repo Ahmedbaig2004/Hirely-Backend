@@ -79,3 +79,11 @@ export async function embedTexts(texts) {
   }
   return vectors;
 }
+
+export async function batchEmbedTexts(texts) {
+  const result = await ai.models.embedContent({
+    model: "gemini-embedding-001",
+    contents: texts,
+  });
+  return result.embeddings.map((e) => e.values);
+}

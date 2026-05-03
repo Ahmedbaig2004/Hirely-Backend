@@ -6,6 +6,7 @@ import {
   submitAnswer,
   getVoiceProgress,
   finalizeInterview,
+  getFinalizeStatus,
 } from "../controllers/interviewController.js";
 
 const router = express.Router();
@@ -43,7 +44,10 @@ router.post(
 // Voice analysis progress polling
 router.get("/voice-progress/:sessionId", getVoiceProgress);
 
-// Finalize interview (generate report after all voice analyses complete)
+// Finalize interview (kicks off background processing)
 router.post("/finalize-interview", finalizeInterview);
+
+// Poll finalization status
+router.get("/finalize-status/:sessionId", getFinalizeStatus);
 
 export default router;
