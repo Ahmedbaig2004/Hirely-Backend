@@ -1,15 +1,34 @@
+﻿# Combined Python runtime requirements for Hirely voice_service + video_service.
+# This is intentionally not a full `pip freeze`; transitive packages are left
+# for pip to resolve unless the app imports them directly or model loading needs them.
+
+# API services
 fastapi==0.104.1
 uvicorn==0.24.0
-pydantic>=2.5.0
-upstash-redis==0.15.0
+pydantic==2.5.0
 python-dotenv==1.0.0
-numpy>=1.24
-opencv-python>=4.8
-mediapipe==0.10.11
-onnxruntime>=1.16
-shap>=0.43
-joblib>=1.3
-pandas>=2.0
-decord>=0.6
-# System dependency: ffmpeg must be installed (used as fallback for broken WebM metadata)
-# Windows: winget install ffmpeg  |  Linux: apt-get install ffmpeg
+upstash-redis==0.15.0
+
+# Shared ML/model runtime
+joblib==1.3.2
+numpy
+pandas
+scipy
+scikit-learn
+xgboost==2.0.3
+shap
+
+# Voice analysis
+opensmile==2.6.0
+pydub==0.25.1
+soundfile==0.12.1
+
+# Video analysis
+opencv-python
+mediapipe==0.10.14
+decord==0.6.0
+onnxruntime
+
+# Maybe needed by deployed models or local inference/debug scripts.
+# Keep these only if your serialized model/pipeline imports them at load time.
+matplotlib
