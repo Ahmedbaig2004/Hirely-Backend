@@ -539,6 +539,7 @@ async function doFinalization(sessionId, session) {
       score: evaluations[idx]?.score ?? 0,
       feedback: evaluations[idx]?.feedback ?? "",
       betterAnswer: evaluations[idx]?.betterAnswer ?? null,
+      recommendedDoc: evaluations[idx]?.recommendedDoc ?? null,
       deliveryAnalysis: deliveryAnalyses[idx] ?? null,
     }));
 
@@ -680,7 +681,13 @@ async function doFinalization(sessionId, session) {
             sentenceRestarts: turn.deliveryAnalysis?.sentenceRestarts ?? null,
             relevanceScore: turn.deliveryAnalysis?.relevanceScore ?? null,
             specificityScore: turn.deliveryAnalysis?.specificityScore ?? null,
-            deliveryFeedback: turn.deliveryAnalysis ?? null,
+            deliveryFeedback:
+              turn.deliveryAnalysis || turn.recommendedDoc
+                ? {
+                    ...(turn.deliveryAnalysis ?? {}),
+                    recommendedDoc: turn.recommendedDoc ?? null,
+                  }
+                : null,
             voiceAnalysis: turn.voiceAnalysis
               ? {
                   create: {

@@ -24,6 +24,18 @@ async function retrieveContext(question, existingQVector = null) {
   return results;
 }
 
+function toRecommendedDoc(doc) {
+  if (!doc) return null;
+  const source = doc.metadata?.source || doc.source || null;
+  if (!source) return null;
+  return {
+    source,
+    title: doc.metadata?.title || null,
+    category: doc.metadata?.category || null,
+    snippet: (doc.content || "").replace(/\s+/g, " ").trim().substring(0, 220),
+  };
+}
+
 /**
  * 🤖 The Judge: LLM Evaluation
  */
@@ -157,6 +169,7 @@ async function evaluateAnswer(
     }
 
     const contextString = contextDocs.map((d) => d.content).join("\n\n");
+    const recommendedDoc = toRecommendedDoc(contextDocs[0]);
 
     // 4. LLM Grading
     console.log("\n⚖️  Sending to Gemini 3.0 for Grading...");
@@ -170,8 +183,9 @@ async function evaluateAnswer(
 
     if (!evaluation) throw new Error("AI Service Unavailable");
 
-    printResult(evaluation);
-    return evaluation;
+    const result = { ...evaluation, recommendedDoc };
+    printResult(result);
+    return result;
   } catch (error) {
     const message = error?.message ? String(error.message) : "Unknown error";
     const isCritical =
@@ -271,6 +285,7 @@ async function evaluateAnswerBatch(turns, roleContext) {
       }
 
       const contextString = contextDocs.map((d) => d.content).join("\n\n");
+      const recommendedDoc = toRecommendedDoc(contextDocs[0]);
 
       console.log("\n⚖️  Sending to Gemini for Grading...");
       const evaluation = await evaluateWithLLM(
@@ -283,8 +298,9 @@ async function evaluateAnswerBatch(turns, roleContext) {
 
       if (!evaluation) throw new Error("AI Service Unavailable");
 
-      printResult(evaluation);
-      results.push(evaluation);
+      const result = { ...evaluation, recommendedDoc };
+      printResult(result);
+      results.push(result);
     } catch (error) {
       const message = error?.message ? String(error.message) : "Unknown error";
       const isCritical =

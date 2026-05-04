@@ -15,6 +15,18 @@ const NextQuestionSchema = z.object({
   reason: z.string(),
 });
 
+const PRIMARY_NEXT_QUESTION_TIMEOUT_MS = 15000;
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 const FinalReportSchema = z.object({
   decision: z.enum(["Strong Hire", "Hire", "Weak Hire", "No Hire"]),
   technicalLevel: z
@@ -231,7 +243,21 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     TASK: ${taskDescription}
   `;
 
-  return await generateStructured(prompt, NextQuestionSchema);
+  try {
+    return await withTimeout(
+      generateStructured(prompt, NextQuestionSchema),
+      PRIMARY_NEXT_QUESTION_TIMEOUT_MS,
+      "Adaptive question generation with gemini-2.5-flash",
+    );
+  } catch (error) {
+    console.warn(
+      "Adaptive question generation failed on gemini-2.5-flash, retrying with gemini-2.5-flash-lite:",
+      error.message,
+    );
+    return await generateStructured(prompt, NextQuestionSchema, {
+      model: "gemini-2.5-flash-lite",
+    });
+  }
 }
 
 /**
