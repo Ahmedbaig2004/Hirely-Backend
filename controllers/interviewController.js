@@ -26,7 +26,7 @@ const redisClient = new Redis({
   token: process.env.REDIS_TOKEN,
 });
 
-const JOB_SPECIFIC_MAX_QUESTIONS = 2;
+const JOB_SPECIFIC_MAX_QUESTIONS = 10;
 
 /**
  * Initialize interview session
@@ -108,7 +108,8 @@ export const initInterview = async (req, res) => {
     });
 
     const sessionId = uuidv4();
-    const firstQuestion = analysis.questions[0];
+    const seededQuestions = analysis.questions.slice(0, 2);
+    const firstQuestion = seededQuestions[0];
     const interviewerVoice =
       req.body.interviewerVoice === "male" ? "male" : "female";
     const interviewMode = ["chat", "audio", "video"].includes(
@@ -121,7 +122,7 @@ export const initInterview = async (req, res) => {
       interviewType,
       config,
       jobDescription: jobDescription || null,
-      initialQuestions: analysis.questions,
+      initialQuestions: seededQuestions,
       gapAnalysis: analysis.gapAnalysis || null,
       userId: userId || "anonymous",
       interviewerVoice,
@@ -149,7 +150,7 @@ export const initInterview = async (req, res) => {
 
     res.json({
       sessionId,
-      analysis,
+      analysis: { ...analysis, questions: seededQuestions },
       firstQuestion,
       audio: audioBase64,
       audioMime,
@@ -218,18 +219,7 @@ export const submitAnswer = async (req, res) => {
       evaluationText = translatedText;
     }
 
-    // 3. Generate Next Question only — evaluation and delivery analysis are deferred to
-    // finalization where all turns are scored in parallel (no per-turn LLM grading here).
-    // getNextQuestion reads the raw transcript directly so no score is needed.
-    // Trigger parallel generation when queue has ≤1 item: after saveTurn shifts the queue,
-    // it will be empty, and parallelNextQ will be ready instead of blocking on a fallback call.
-    const nextQuestionNeeded =
-      !session.questionQueue || session.questionQueue.length <= 1;
-    const parallelNextQ = nextQuestionNeeded
-      ? await getNextQuestion(session, { question, answer: answerText })
-      : null;
-
-    // 4. Save Turn to State (Redis) — score/feedback null until finalization
+    // 3. Save Turn to State (Redis) - score/feedback null until finalization.
     const updatedSession = await stateManager.saveTurn(
       sessionId,
       question,
@@ -304,12 +294,15 @@ export const submitAnswer = async (req, res) => {
     }
 
     // 6. NEXT QUESTION & TTS LOGIC
-    // Use pre-generated queue first, then the parallel-generated question.
+    // Use only the two pre-generated seed questions, then generate adaptively.
     const queue = updatedSession.questionQueue;
     let nextQ =
       queue && queue.length > 0
         ? queue[0]
-        : (parallelNextQ ?? (await getNextQuestion(updatedSession)));
+        : await getNextQuestion(updatedSession, {
+            question,
+            answer: answerText,
+          });
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 

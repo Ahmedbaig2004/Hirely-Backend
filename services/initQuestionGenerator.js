@@ -31,13 +31,15 @@ export async function generateInitialQuestions({
 
   if (interviewType === "TECHNICAL") {
     const { stack, difficulty, questionCount } = config;
-    const questions = await generateTechnicalQuestions(stack, difficulty, questionCount);
+    const seedCount = Math.min(questionCount, 2);
+    const questions = await generateTechnicalQuestions(stack, difficulty, seedCount);
     return { candidateSummary: null, gapAnalysis: null, questions };
   }
 
   if (interviewType === "BEHAVIORAL") {
     const { difficulty, questionCount } = config;
-    const questions = await generateBehavioralQuestions(difficulty, questionCount);
+    const seedCount = Math.min(questionCount, 2);
+    const questions = await generateBehavioralQuestions(difficulty, seedCount);
     return { candidateSummary: null, gapAnalysis: null, questions };
   }
 
