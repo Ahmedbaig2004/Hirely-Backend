@@ -28,14 +28,442 @@ logger = logging.getLogger(__name__)
 # ============================================================
 models = {}
 
+_HERE = Path(__file__).resolve().parent
+CALIBRATION_PATH = str(_HERE / "models" / "audio_calibration_data_v1.json")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# AUDIO FEEDBACK SYSTEM
+# Mirrors the video service's group-based SHAP + golden zone feedback exactly.
+# ════════════════════════════════════════════════════════════════════════════════
+
+# ── Friendly names shown to the user ─────────────────────────────────────────
+FRIENDLY_NAMES = {
+    # Loudness & Energy
+    "loudness_sma3_percentile20.0":      "Minimum Loudness",
+    "loudness_sma3_percentile50.0":      "Median Loudness",
+    "loudness_sma3_percentile80.0":      "Peak Loudness",
+    "loudness_sma3_stddevNorm":          "Loudness Variation",
+    "loudness_sma3_pctlrange0-2":        "Loudness Dynamic Range",
+    "loudness_sma3_meanRisingSlope":     "Loudness Rising Intensity",
+    "loudness_sma3_stddevRisingSlope":   "Loudness Rise Consistency",
+    "loudness_sma3_meanFallingSlope":    "Loudness Falling Speed",
+    "loudness_sma3_stddevFallingSlope":  "Loudness Fall Consistency",
+    "loudnessPeaksPerSec":               "Loudness Peaks per Second",
+    "loudness_dynamics_power":           "Loudness Dynamics Power",
+    "vocal_projection":                  "Vocal Projection",
+    # Pitch & Expressiveness
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": "Pitch Variation",
+    "spectralFlux_sma3_amean":           "Spectral Flux",
+    "spectralFlux_sma3_stddevNorm":      "Spectral Flux Variation",
+    "alphaRatioV_sma3nz_amean":          "High-Freq Energy Ratio",
+    "alphaRatioV_sma3nz_stddevNorm":     "High-Freq Energy Variation",
+    "hammarbergIndexV_sma3nz_stddevNorm":"Vocal Brightness Variation",
+    "hammarbergIndexUV_sma3nz_amean":    "Unvoiced Brightness",
+    "brightness_contrast":               "Spectral Brightness Contrast",
+    "slopeV0-500_sma3nz_stddevNorm":     "Low-Freq Slope Variation",
+    "slopeUV0-500_sma3nz_amean":         "Unvoiced Low-Freq Slope",
+    "slopeUV500-1500_sma3nz_amean":      "Unvoiced Mid-Freq Slope",
+    # Voice Quality
+    "HNRdBACF_sma3nz_amean":            "Voice Clarity (HNR)",
+    "HNRdBACF_sma3nz_stddevNorm":       "Voice Clarity Consistency",
+    "shimmerLocaldB_sma3nz_amean":       "Voice Shimmer",
+    "shimmerLocaldB_sma3nz_stddevNorm":  "Shimmer Consistency",
+    "vocal_instability":                 "Vocal Instability",
+    "F2amplitudeLogRelF0_sma3nz_amean":      "F2 Amplitude",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm": "F2 Amplitude Variation",
+    "F2bandwidth_sma3nz_stddevNorm":          "F2 Bandwidth Variation",
+    "F2frequency_sma3nz_stddevNorm":          "F2 Frequency Variation",
+    "F3amplitudeLogRelF0_sma3nz_amean":      "F3 Amplitude",
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm": "F3 Amplitude Variation",
+    "F3bandwidth_sma3nz_stddevNorm":          "F3 Bandwidth Variation",
+    "F3frequency_sma3nz_stddevNorm":          "F3 Frequency Variation",
+    "logRelF0-H1-H2_sma3nz_stddevNorm":      "Harmonic Balance Variation",
+    "mfcc1_sma3_stddevNorm":   "Timbre Variation (MFCC1)",
+    "mfcc1V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC1)",
+    "mfcc2V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC2)",
+    "mfcc3_sma3_stddevNorm":   "Timbre Variation (MFCC3)",
+    "mfcc4V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC4)",
+    "mfcc4_sma3_stddevNorm":   "Timbre Variation (MFCC4)",
+    # Fluency & Flow
+    "voiced_flow":                       "Voiced Speech Flow",
+    "MeanUnvoicedSegmentLength":         "Average Pause Length",
+}
+
+# ── Feedback groups — each maps to one UI card ───────────────────────────────
+FEEDBACK_GROUPS = {
+    "Loudness & Energy": {
+        "members": [
+            "loudness_sma3_percentile20.0", "loudness_sma3_percentile50.0",
+            "loudness_sma3_percentile80.0", "loudness_sma3_stddevNorm",
+            "loudness_sma3_pctlrange0-2",   "loudness_sma3_meanRisingSlope",
+            "loudness_sma3_stddevRisingSlope","loudness_sma3_meanFallingSlope",
+            "loudness_sma3_stddevFallingSlope","loudnessPeaksPerSec",
+            "loudness_dynamics_power",       "vocal_projection",
+        ],
+        "yellow_threshold": -0.0001,
+        "red_threshold":    -0.0800,
+    },
+    "Pitch & Expressiveness": {
+        "members": [
+            "F0semitoneFrom27.5Hz_sma3nz_stddevNorm",
+            "spectralFlux_sma3_amean",       "spectralFlux_sma3_stddevNorm",
+            "brightness_contrast",
+            "alphaRatioV_sma3nz_amean",      "alphaRatioV_sma3nz_stddevNorm",
+            "hammarbergIndexV_sma3nz_stddevNorm", "hammarbergIndexUV_sma3nz_amean",
+            "slopeV0-500_sma3nz_stddevNorm",
+            "slopeUV0-500_sma3nz_amean",     "slopeUV500-1500_sma3nz_amean",
+        ],
+        "yellow_threshold": -0.0001,
+        "red_threshold":    -0.0600,
+    },
+    "Voice Quality": {
+        "members": [
+            "HNRdBACF_sma3nz_amean",      "HNRdBACF_sma3nz_stddevNorm",
+            "shimmerLocaldB_sma3nz_amean", "shimmerLocaldB_sma3nz_stddevNorm",
+            "vocal_instability",
+            "F2amplitudeLogRelF0_sma3nz_amean",      "F2amplitudeLogRelF0_sma3nz_stddevNorm",
+            "F2bandwidth_sma3nz_stddevNorm",          "F2frequency_sma3nz_stddevNorm",
+            "F3amplitudeLogRelF0_sma3nz_amean",      "F3amplitudeLogRelF0_sma3nz_stddevNorm",
+            "F3bandwidth_sma3nz_stddevNorm",          "F3frequency_sma3nz_stddevNorm",
+            "logRelF0-H1-H2_sma3nz_stddevNorm",
+            "mfcc1_sma3_stddevNorm",     "mfcc1V_sma3nz_stddevNorm",
+            "mfcc2V_sma3nz_stddevNorm",  "mfcc3_sma3_stddevNorm",
+            "mfcc4V_sma3nz_stddevNorm",  "mfcc4_sma3_stddevNorm",
+        ],
+        "yellow_threshold": -0.0001,
+        "red_threshold":    -0.0700,
+    },
+    "Fluency & Flow": {
+        "members": [
+            "voiced_flow",
+            "MeanUnvoicedSegmentLength",
+        ],
+        "yellow_threshold": -0.0001,
+        "red_threshold":    -0.0400,
+    },
+}
+
+# Features too technical/noisy to surface as user-facing coaching tips
+SKIP_COACHING = {
+    "F2frequency_sma3nz_stddevNorm",
+    "F3frequency_sma3nz_stddevNorm",
+    "F2bandwidth_sma3nz_stddevNorm",
+    "F3bandwidth_sma3nz_stddevNorm",
+    "logRelF0-H1-H2_sma3nz_stddevNorm",
+    "slopeUV0-500_sma3nz_amean",
+    "slopeUV500-1500_sma3nz_amean",
+    "hammarbergIndexUV_sma3nz_amean",
+    "mfcc4_sma3_stddevNorm",
+    "mfcc4V_sma3nz_stddevNorm",
+}
+
+
+# ── Coaching tip generator ────────────────────────────────────────────────────
+def _get_coaching_tip(feat: str, val: float, zone: dict, direction: str) -> tuple[str, str]:
+    """
+    Returns (tip_text, status_colour).
+    direction: "positive" = SHAP helped score, "negative" = SHAP hurt score.
+    status_colour: "green" | "yellow" | "red"
+    """
+    friendly = FRIENDLY_NAMES.get(feat, feat)
+    zone_min = zone.get("min", -99)
+    zone_max = zone.get("max",  99)
+    feat_dir = zone.get("direction", "INCREASING")
+    in_zone  = zone_min <= val <= zone_max
+
+    # ── Positive SHAP ────────────────────────────────────────────────────────
+    if direction == "positive":
+        if in_zone or val >= zone_min:
+            return f"Your {friendly} is a key strength — it's well-calibrated.", "green"
+        return f"Your {friendly} is on the right track. Keep improving it.", "yellow"
+
+    # ── Negative SHAP ────────────────────────────────────────────────────────
+
+    # Loudness / Energy
+    if "loudness" in feat.lower() or feat == "vocal_projection":
+        if "stddev" in feat or "Slope" in feat:
+            if val < zone_min:
+                return f"Your {friendly} is very flat — vary your volume more to sound dynamic.", "red"
+            if val > zone_max:
+                return f"Your {friendly} is too erratic — work on smoother volume control.", "red"
+        else:
+            if feat_dir == "INCREASING" and val < zone_min:
+                return f"Your {friendly} is too low — speak louder and project more.", "red"
+            if feat_dir == "DECREASING" and val > zone_max:
+                return f"Your {friendly} is too intense — dial back the volume slightly.", "red"
+        return f"Your {friendly} could be better balanced for a confident delivery.", "yellow"
+
+    if feat == "loudness_dynamics_power":
+        if val < zone_min:
+            return "Your loudness dynamics are weak — add more peaks and energy variation.", "red"
+        return "Your loudness dynamics could be more expressive.", "yellow"
+
+    # Pitch / Expressiveness
+    if "F0semitone" in feat:
+        if val < zone_min:
+            return (
+                "Your pitch variation is very low — you sound monotone. "
+                "Try raising and lowering your voice to emphasise key points.", "red"
+            )
+        if val > zone_max:
+            return "Your pitch varies too wildly — aim for controlled, purposeful intonation.", "yellow"
+        return "Your pitch expressiveness could be slightly improved.", "yellow"
+
+    if "spectralFlux" in feat:
+        if val < zone_min:
+            return "Your speech lacks tonal variety — it sounds static. Vary your tone and articulation.", "red"
+        return "Your tonal variety could be more expressive.", "yellow"
+
+    if "brightness_contrast" in feat:
+        if val < zone_min:
+            return (
+                "Your voice lacks high-frequency brightness — "
+                "work on clearer articulation and more forward placement.", "yellow"
+            )
+        if val > zone_max:
+            return "Your voice is overly bright/harsh. A slightly warmer tone will sound more natural.", "yellow"
+        return "Your spectral brightness balance could be adjusted.", "yellow"
+
+    if "alphaRatio" in feat:
+        if val < zone_min:
+            return (
+                "Your voice has low high-frequency energy — "
+                "it may sound muffled. Work on clear, forward articulation.", "yellow"
+            )
+        return f"Your {friendly} could be adjusted for a cleaner sound.", "yellow"
+
+    if "hammarberg" in feat.lower() or "slope" in feat.lower():
+        return f"Your {friendly} could be better calibrated for confident delivery.", "yellow"
+
+    # Voice Quality
+    if "HNR" in feat:
+        if val < zone_min:
+            return (
+                "Your voice clarity (HNR) is low — it sounds breathy or rough. "
+                "Support your breath and engage your core when speaking.", "red"
+            )
+        return "Your voice clarity could be slightly improved.", "yellow"
+
+    if "shimmer" in feat.lower():
+        if "stddev" in feat:
+            if val > zone_max:
+                return "Your shimmer is erratic — focus on steady, supported phonation.", "red"
+            if val < zone_min:
+                return "Your shimmer consistency is too low — your voice amplitude is unpredictably variable.", "yellow"
+        else:
+            if val > zone_max:
+                return "Your voice shimmer is high — it sounds unsteady. Work on breath support and vocal stability.", "red"
+            if val < zone_min:
+                return "Your shimmer is unusually low — your voice may sound overly rigid.", "yellow"
+        return "Your voice steadiness could be improved.", "yellow"
+
+    if "vocal_instability" in feat:
+        if val > zone_max:
+            return (
+                "Your voice is unstable (high jitter × shimmer). "
+                "Focus on steady breath support and relaxed phonation.", "red"
+            )
+        if val < zone_min:
+            return (
+                "Your vocal instability is unusually low — "
+                "ensure it reflects natural speech rather than suppressed movement.", "yellow"
+            )
+        return "Your vocal stability could be slightly improved.", "yellow"
+
+    if "mfcc" in feat.lower():
+        if val < zone_min:
+            return (
+                f"Your {friendly} is too uniform — "
+                "vary your articulation and resonance for a richer vocal quality.", "yellow"
+            )
+        if val > zone_max:
+            return f"Your {friendly} is too erratic — aim for consistent, controlled articulation.", "red"
+        return f"Your {friendly} could be refined for better vocal quality.", "yellow"
+
+    if "F2amplitude" in feat or "F3amplitude" in feat:
+        if val < zone_min:
+            return f"Your {friendly} is weak — work on clearer vowel resonance.", "yellow"
+        if val > zone_max:
+            return f"Your {friendly} is too prominent — balance your resonance.", "yellow"
+        return f"Your {friendly} could be better balanced.", "yellow"
+
+    # Fluency & Flow
+    if "voiced_flow" in feat:
+        if val < zone_min:
+            return (
+                "Your voiced speech flow is low — you have too many pauses or short segments. "
+                "Work on longer, connected phrases.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your voiced flow is very high — you may be speaking without enough breathing space. "
+                "Allow natural pauses for impact.", "yellow"
+            )
+        return "Your speech flow could be improved for better rhythm.", "yellow"
+
+    if "MeanUnvoicedSegmentLength" in feat:
+        if val > zone_max:
+            return (
+                "Your pauses are too long — they break your flow and lose listener attention. "
+                "Aim for shorter, purposeful pauses.", "red"
+            )
+        if val < zone_min:
+            return "Your pauses are very short — allow brief moments of silence to let key points land.", "yellow"
+        return "Your pause length could be better calibrated.", "yellow"
+
+    # Generic fallback
+    if val < zone_min:
+        if feat_dir == "INCREASING":
+            return f"Your {friendly} is below the ideal range — try to increase it.", "red"
+        elif feat_dir == "DECREASING":
+            return f"Your {friendly} is above the ideal — dial it back slightly.", "red"
+        return f"Your {friendly} is outside the ideal range — try to find the sweet spot.", "yellow"
+    if val > zone_max:
+        if feat_dir == "DECREASING":
+            return f"Your {friendly} is above the ideal — dial it back slightly.", "red"
+        return f"Your {friendly} is a bit high — a more moderate level works best.", "yellow"
+
+    return f"Your {friendly} could be slightly adjusted.", "yellow"
+
+
+# ── Eligible feature selector ─────────────────────────────────────────────────
+def _get_eligible_features(
+    shap_dict: dict,
+    group_members: list,
+    feature_values: dict,
+    direction: str,
+    overall_score: float,
+    golden_zones: dict,
+) -> list:
+    """Filters and ranks features for tip generation. Mirrors video service exactly."""
+    if direction == "negative":
+        if overall_score < 0.65:
+            sensitivity = 0.001
+        elif overall_score > 0.80:
+            sensitivity = 0.015
+        else:
+            sensitivity = 0.005
+    else:
+        sensitivity = 0.003
+
+    eligible = []
+    for feat, shap_val in shap_dict.items():
+        if feat not in group_members:
+            continue
+        if feat in SKIP_COACHING:
+            continue
+
+        val    = feature_values.get(feat, 0)
+        zone   = golden_zones.get(feat, {"min": -99, "max": 99})
+        in_zone = zone.get("min", -99) <= val <= zone.get("max", 99)
+
+        if direction == "positive":
+            if shap_val <= sensitivity:
+                continue
+        else:
+            if shap_val >= -sensitivity:
+                continue
+            if overall_score > 0.80 and in_zone:
+                continue
+
+        eligible.append((feat, shap_val))
+
+    eligible.sort(key=lambda x: abs(x[1]), reverse=True)
+    return eligible
+
+
+# ── Group results builder ─────────────────────────────────────────────────────
+def build_audio_group_results(
+    shap_dict: dict,
+    feature_values: dict,
+    overall_score: float,
+    base_value: float,
+    golden_zones: dict,
+) -> dict:
+    """
+    Mirrors video service's build_group_results() exactly.
+    Returns a dict keyed by group name, each with impact_points, status, tips.
+    Also returns a _metadata key with baseline and synergy_gap.
+    """
+    bv = float(base_value[0]) if isinstance(base_value, (list, np.ndarray)) else float(base_value)
+    baseline_pct         = bv * 100
+    explainer_prediction = baseline_pct
+    group_results        = {}
+
+    for group_name, group_info in FEEDBACK_GROUPS.items():
+        members = group_info["members"]
+
+        group_shap_sum = sum(v for f, v in shap_dict.items() if f in members)
+        impact_points  = group_shap_sum * 100
+        explainer_prediction += impact_points
+
+        if   group_shap_sum >= group_info["yellow_threshold"]: status = "green"
+        elif group_shap_sum >= group_info["red_threshold"]:    status = "yellow"
+        else:                                                  status = "red"
+
+        neg_features = _get_eligible_features(
+            shap_dict, members, feature_values, "negative", overall_score, golden_zones
+        )
+        pos_features = _get_eligible_features(
+            shap_dict, members, feature_values, "positive", overall_score, golden_zones
+        )
+
+        if   status == "green":  p_limit, n_limit = 3, 1
+        elif status == "yellow": p_limit, n_limit = 2, 2
+        else:                    p_limit, n_limit = 1, 3
+
+        tips: list = []
+        seen: set  = set()
+
+        def process_tips(features, dir_type, limit):
+            count = 0
+            for feat, shap_val in features:
+                if count >= limit or feat in seen:
+                    continue
+                val  = feature_values.get(feat, 0)
+                zone = golden_zones.get(feat, {})
+                tip_text, tip_status = _get_coaching_tip(feat, val, zone, dir_type)
+                tips.append({
+                    "feature":        feat,
+                    "friendly":       FRIENDLY_NAMES.get(feat, feat),
+                    "shap":           round(float(shap_val), 4),
+                    "value":          round(float(val), 4),
+                    "direction":      dir_type,
+                    "tip":            tip_text,
+                    "status":         tip_status,
+                    "zone_min":       round(float(zone.get("min", -99)), 4),
+                    "zone_max":       round(float(zone.get("max",  99)), 4),
+                    "zone_direction": zone.get("direction", "INCREASING"),
+                })
+                seen.add(feat)
+                count += 1
+
+        if status == "red":
+            process_tips(neg_features, "negative", n_limit)
+            process_tips(pos_features, "positive", p_limit)
+        else:
+            process_tips(pos_features, "positive", p_limit)
+            process_tips(neg_features, "negative", n_limit)
+
+        group_results[group_name] = {
+            "impact_points": round(float(impact_points), 1),
+            "status":        status,
+            "tips":          tips,
+        }
+
+    group_results["_metadata"] = {
+        "baseline":    round(baseline_pct, 1),
+        "synergy_gap": round((overall_score * 100) - explainer_prediction, 1),
+    }
+    return group_results
+
+
 # ============================================================
-# FEATURE KNOWLEDGE BASE
-# Human-readable labels and coaching tips for every top-45 feature.
-# SHAP identifies WHICH features drove the prediction; these dicts
-# translate that into language candidates can actually act on.
+# LEGACY COACHING KNOWLEDGE BASE
+# (kept for backward compat — featureExplanations field)
 # ============================================================
 FEATURE_LABELS = {
-    # --- Energy / Volume ---
     "loudnessPeaksPerSec":                        "Energy & Emphasis",
     "loudness_sma3_percentile20.0":               "Low-volume Clarity",
     "loudness_dynamics_power":                    "Dynamic Range",
@@ -45,64 +473,35 @@ FEATURE_LABELS = {
     "loudness_sma3_pctlrange0-2":                 "Whisper-to-Shout Range",
     "loudness_sma3_meanFallingSlope":             "Sentence Endings",
     "loudness_sma3_stddevRisingSlope":            "Attack Variation",
-    # --- Fluency / Steadiness ---
     "voiced_flow":                                "Speaking Flow",
     "vocal_instability":                          "Voice Steadiness",
-    "StddevUnvoicedSegmentLength":                "Pause Consistency",
     "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Wobble",
-    "MeanVoicedSegmentLengthSec":                 "Phrase Length",
-    # --- Clarity / Crispness ---
     "HNRdBACF_sma3nz_amean":                      "Voice Clarity",
-    "alphaRatioUV_sma3nz_amean":                  "Consonant Crispness",
-    "slopeUV500-1500_sma3nz_amean":               "Voice Brightness",
-    "F2bandwidth_sma3nz_stddevNorm":              "Mouth Movement Consistency",
-    "F3bandwidth_sma3nz_stddevNorm":              "Pronunciation Consistency",
-    # --- Pitch / Intonation ---
     "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Variety",
-    # --- Breath & Tension ---
-    "logRelF0-H1-H2_sma3nz_stddevNorm":          "Breath Control Variation",
-    # --- Expressiveness ---
-    "spectralFluxV_sma3nz_stddevNorm":            "Expressive Variety",
-    "hammarbergIndexUV_sma3nz_amean":             "Spectral Tilt",
-    # --- Resonance ---
     "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Richness",
     "F3amplitudeLogRelF0_sma3nz_amean":           "Voice Richness",
     "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Resonance",
     "F2amplitudeLogRelF0_sma3nz_amean":           "Vowel Power",
-    "F1amplitudeLogRelF0_sma3nz_stddevNorm":      "Resonance Variation",
-    "F2frequency_sma3nz_stddevNorm":              "Vowel Clarity Range",
-    "slopeV500-1500_sma3nz_amean":                "Voice Brightness",
-    "F3frequency_sma3nz_stddevNorm":              "Tone Consistency",
-    # --- Voice Quality ---
     "mfcc1_sma3_stddevNorm":                      "Voice Texture Variety",
-    "mfcc1V_sma3nz_stddevNorm":                   "Core Voice Variety",
-    "mfcc2_sma3_stddevNorm":                      "Voice Character Variety",
     "mfcc2V_sma3nz_stddevNorm":                   "Voice Warmth Variety",
     "mfcc3_sma3_stddevNorm":                      "Tonal Variety",
-    "mfcc4_sma3_stddevNorm":                      "Tone Consistency",
-    "mfcc4V_sma3nz_stddevNorm":                   "Tone Steadiness",
     "hammarbergIndexV_sma3nz_stddevNorm":         "Voice Quality Steadiness",
-    "hammarbergIndexV_sma3nz_amean":              "Voice Fullness",
     "alphaRatioV_sma3nz_amean":                   "Spectral Balance",
     "alphaRatioV_sma3nz_stddevNorm":              "Spectral Balance Variation",
     "slopeV0-500_sma3nz_stddevNorm":              "Low-Frequency Variation",
-    "slopeV0-500_sma3nz_amean":                   "Voice Warmth",
+    "spectralFlux_sma3_amean":                    "Expressive Variety",
+    "MeanUnvoicedSegmentLength":                  "Pause Length",
+    "brightness_contrast":                        "Spectral Brightness",
 }
 
-# ============================================================
-# COACHING TIPS — Problem → Why it matters → The Drill
-# Every tip must describe a PHYSICAL ACTION the user can do.
-# No acoustic jargon. If a user can't visualize the body part
-# they need to move, the feedback is useless.
-# ============================================================
 FEATURE_TIPS = {
     "loudnessPeaksPerSec": {
         "positive": "Excellent! You naturally emphasized key words.",
-        "negative": "Your volume was quite flat. Easy daily practice: Pick any 3 important words and say them noticeably louder than the rest. Do this 5 times a day.",
+        "negative": "Your volume was quite flat. Practice: Pick 3 important words and say them noticeably louder. Do this 5 times a day.",
     },
     "vocal_projection": {
         "positive": "Your voice carried well.",
-        "negative": "Your voice sounded a bit weak. Fix: Sit/stand tall, breathe from your belly, and speak as if the person is 3 meters away.",
+        "negative": "Your voice sounded a bit weak. Fix: Sit tall, breathe from your belly, and speak as if the person is 3 meters away.",
     },
     "vocal_instability": {
         "positive": "Your voice was steady.",
@@ -126,104 +525,43 @@ FEATURE_TIPS = {
     },
     "loudness_sma3_percentile20.0": {
         "positive": "Even your quiet moments were clear and audible.",
-        "negative": "Your quietest moments were a bit too soft to hear. Fix: Imagine you are speaking to someone at the back of the room, even when lowering your volume for effect.",
-    },
-    "slopeUV500-1500_sma3nz_amean": {
-        "positive": "Your voice sounds bright and energetic.",
-        "negative": "Your tone sounded a bit dull. Fix: Try 'smiling with your voice'—literally smiling slightly while you speak can brighten your vocal tone immediately.",
+        "negative": "Your quietest moments were a bit too soft. Fix: Imagine speaking to someone at the back of the room, even when quiet.",
     },
     "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
         "positive": "Good vocal richness and depth.",
-        "negative": "Your voice sounded a bit thin and flat. Simple fix: Slightly open the back of your throat (like the start of a yawn) while speaking to add natural warmth.",
+        "negative": "Your voice sounded a bit thin. Fix: Slightly open the back of your throat (like the start of a yawn) while speaking.",
     },
     "F2amplitudeLogRelF0_sma3nz_amean": {
         "positive": "Strong vowel projection.",
-        "negative": "Your vowels sounded a bit weak. Practice: Over-pronounce vowels like 'I wOrkEd On A prOjEct' for 30 seconds, then speak normally.",
-    },
-    "F2amplitudeLogRelF0_sma3nz_stddevNorm": {
-        "positive": "Your voice has great resonance and clarity.",
-        "negative": "Your voice sounded a bit muffled. Practice speaking 'forward'—imagine your voice is hitting your front teeth rather than staying in your throat.",
-    },
-    "F3frequency_sma3nz_stddevNorm": {
-        "positive": "You maintained a very stable and professional tone.",
-        "negative": "Your tone shifted slightly during sentences. Focus on maintaining a steady breath until the end of your thought.",
+        "negative": "Your vowels sounded a bit weak. Practice: Over-pronounce vowels for 30 seconds, then speak normally.",
     },
     "HNRdBACF_sma3nz_amean": {
         "positive": "Your voice sounded clean and smooth — easy and pleasant to listen to.",
-        "negative": "Your voice sounded breathy or rough. Fix: Hum for 10 seconds to warm up your vocal cords, and support each sentence with a full breath.",
-    },
-    "StddevUnvoicedSegmentLength": {
-        "positive": "Your pauses were consistent and purposeful — structured thinking, not stumbling.",
-        "negative": "Your pauses were erratic — some too short, some awkwardly long. Fix: Use deliberate 1-second pauses between ideas.",
+        "negative": "Your voice sounded breathy or rough. Fix: Hum for 10 seconds to warm up your vocal cords.",
     },
     "shimmerLocaldB_sma3nz_stddevNorm": {
         "positive": "Steady volume control — composed and consistent.",
         "negative": "Your volume wobbled unpredictably between words. Fix: Practice sustaining 'ahhh' at one volume for 5 seconds.",
     },
-    "loudness_sma3_pctlrange0-2": {
-        "positive": "Good whisper-to-shout range — dynamic and engaging delivery.",
-        "negative": "You spoke at one volume with almost no range. Fix: Practice reading a paragraph starting quiet, building to medium, finishing strong.",
+    "MeanUnvoicedSegmentLength": {
+        "positive": "Your pauses were consistent and purposeful.",
+        "negative": "Your pauses were too long. Fix: Use deliberate 1-second pauses between ideas only.",
     },
-    "F2bandwidth_sma3nz_stddevNorm": {
-        "positive": "Precise mouth movements — clear and well-formed sounds.",
-        "negative": "Articulation was inconsistent — some words clear, others mumbled. Fix: Practice tongue twisters for 30 seconds before the interview.",
+    "mfcc2V_sma3nz_stddevNorm": {
+        "positive": "Natural vocal warmth variation — engaging and human.",
+        "negative": "Your vocal warmth was too erratic. Focus on consistent breath support throughout each phrase.",
     },
-    "alphaRatioUV_sma3nz_amean": {
-        "positive": "Crisp consonants — sharp and clear, making every word distinct.",
-        "negative": "Consonants were soft and mushy — words blurred together. Fix: Exaggerate your 'T' and 'K' sounds when practicing.",
-    },
-    "spectralFluxV_sma3nz_stddevNorm": {
-        "positive": "Good expressive variety — your voice shaped each idea differently.",
-        "negative": "Your voice stayed too uniform. Fix: Pick one word per sentence to emphasize differently — louder, slower, or higher pitch.",
-    },
-    "loudness_sma3_stddevNorm": {
-        "positive": "Natural volume variation — organic and engaging.",
-        "negative": "Volume pattern was flat or erratic. Fix: Record yourself telling a story and mirror that natural energy in interview answers.",
+    "alphaRatioV_sma3nz_amean": {
+        "positive": "Good spectral balance — your voice sounds clear and forward.",
+        "negative": "Your voice lacked high-frequency energy — may sound muffled. Fix: Speak slightly more forward, lips apart.",
     },
 }
 
 
-def generate_final_summary(score: float, neg_features: list, pos_features: list) -> dict:
-    """
-    Generate a score-based coaching summary from the top negative/positive SHAP features.
-    Returns a dict for inclusion in the result payload.
-    """
-    if score > 0.6:
-        opening = "You have a very strong vocal presence! You sound ready for a high-level pitch."
-    elif score > 0.45:
-        opening = "Good solid performance. You sound professional and capable."
-    else:
-        opening = "A great start! With a few vocal tweaks, you can really boost your impact."
-
-    focus_note = None
-    best_trait = None
-
-    if neg_features:
-        main_fix_label = FEATURE_LABELS.get(neg_features[0]["feature"], "vocal habits")
-        focus_note = (
-            f"Don't worry too much about the {main_fix_label.lower()} right now. "
-            "Everyone's voice has natural 'fingerprints' that show up under AI analysis."
-        )
-        if pos_features:
-            best_trait_label = FEATURE_LABELS.get(pos_features[0]["feature"], "strengths")
-            best_trait = f"Focus on leaning into your {best_trait_label.upper()}, which is already working well."
-
-    return {
-        "opening": opening,
-        "focus_note": focus_note,
-        "best_trait": best_trait,
-        "reminder": (
-            "This is a simulation. The best interviewers look for your passion and skills — "
-            "this AI is just here to help you polish the delivery!"
-        ),
-    }
-
-
-def get_generic_tip(label: str, is_positive: bool) -> str:
-    """Fallback tip for features not in FEATURE_TIPS."""
+def _get_generic_tip(label: str, is_positive: bool) -> str:
     if is_positive:
         return f"Your {label.lower()} was a strength — keep doing what you're doing."
-    return f"Your {label.lower()} needs work. Record yourself practicing and listen back — awareness is the first step to improvement."
+    return f"Your {label.lower()} needs work. Record yourself practicing and listen back."
 
 
 # ============================================================
@@ -237,7 +575,7 @@ async def lifespan(app: FastAPI):
     try:
         print("Loading models and initializing tools...")
 
-        models['final_model'] = joblib.load("models/xgboost_balance_model.pkl")
+        models['final_model']  = joblib.load("models/xgboost_balance_model.pkl")
         models['top_features'] = joblib.load("models/top_features_balance.pkl")
         print(f"   XGBoost model loaded — {len(models['top_features'])} features")
 
@@ -247,17 +585,25 @@ async def lifespan(app: FastAPI):
         )
         print("   openSMILE eGeMAPSv02 initialized")
 
-        # Load the calibration-aware proxy model for SHAP explanations.
-        # This model was trained on the same features as final_model but
-        # predicts calibrated scores — so SHAP values are in the same
-        # space the user actually sees (0–1 calibrated), not raw XGBoost space.
-        models['shap_proxy'] = joblib.load("models/shap_proxy_calibrated.pkl")
+        models['shap_proxy']    = joblib.load("models/shap_proxy_calibrated.pkl")
         models['shap_explainer'] = shap.TreeExplainer(models['shap_proxy'])
         print("   SHAP TreeExplainer ready (calibration-aware proxy)")
 
         models['beta_params'] = joblib.load("models/beta_params_production.pkl")
         bp = models['beta_params']
-        print(f"   Beta calibrator loaded — params c={bp[0]:.3f}, d={bp[1]:.3f}, e={bp[2]:.3f}")
+        print(f"   Beta calibrator loaded — params {bp[0]:.3f}, {bp[1]:.3f}, {bp[2]:.3f}")
+
+        # Load golden zones from calibration JSON
+        if not Path(CALIBRATION_PATH).exists():
+            raise FileNotFoundError(f"Missing calibration file: {CALIBRATION_PATH}. Run calibrate_audio_golden_zones.py first.")
+        with open(CALIBRATION_PATH) as f:
+            calibration = json.load(f)
+        models['golden_zones'] = calibration["golden_zones"]
+        models['global_stats'] = calibration.get("global_stats", {})
+        print(f"   Audio golden zones loaded: {len(models['golden_zones'])} features")
+
+        # SHAP proxy feature list — always use these for SHAP (45 features)
+        models['shap_features'] = list(models['shap_proxy'].feature_names_in_)
 
         print("\nSERVICE READY!")
         print("="*60 + "\n")
@@ -266,7 +612,6 @@ async def lifespan(app: FastAPI):
         raise
 
     yield
-
     print("\nVoice analysis service shutting down...")
 
 
@@ -279,7 +624,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Upstash Redis (REST API — not standard redis library)
 try:
     redis_client = Redis(
         url=os.getenv("REDIS_URL"),
@@ -296,11 +640,6 @@ except Exception as e:
 # FEATURE EXTRACTION
 # ============================================================
 def extract_opensmile_features(filepath: str) -> pd.DataFrame:
-    """
-    Extract eGeMAPSv02 functionals using openSMILE.
-    Falls back to a WAV-converted temp file if direct processing fails
-    (handles WebM/Opus audio from the browser recorder).
-    """
     fpath = Path(filepath)
     if not fpath.exists():
         raise FileNotFoundError(f"Audio file not found: {filepath}")
@@ -329,12 +668,6 @@ def extract_opensmile_features(filepath: str) -> pd.DataFrame:
 
 
 def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute 7 engineered features on top of the raw eGeMAPS functionals.
-    Only 4 of these (vocal_instability, vocal_projection, voiced_flow,
-    loudness_dynamics_power) appear in the top-45 model features, but
-    all 7 are computed here to exactly match training.
-    """
     cols = df.columns.tolist()
 
     if all(c in cols for c in ['jitterLocal_sma3nz_amean', 'shimmerLocaldB_sma3nz_amean']):
@@ -360,11 +693,15 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
             df['VoicedSegmentsPerSec'] * df['MeanVoicedSegmentLengthSec']
         )
 
+    if all(c in cols for c in ['slopeV500-1500_sma3nz_amean', 'slopeV0-500_sma3nz_amean']):
+        df['brightness_contrast'] = (
+            df['slopeV500-1500_sma3nz_amean'] - df['slopeV0-500_sma3nz_amean']
+        )
+
     return df
 
 
 def compute_wpm(audio_path: str, transcript_text: str | None) -> float:
-    """Compute words-per-minute from transcript and audio duration (display metric only)."""
     try:
         audio = AudioSegment.from_file(audio_path)
         duration_sec = len(audio) / 1000.0
@@ -377,341 +714,184 @@ def compute_wpm(audio_path: str, transcript_text: str | None) -> float:
 
 
 # ============================================================
-# SHAP EXPLANATION ENGINE
+# SCORING
 # ============================================================
-def generate_shap_explanations(X: pd.DataFrame, calibrated_score: float) -> dict:
+def beta_calibrate(raw_score: float) -> float:
     """
-    Compute per-prediction SHAP values using the calibration-aware proxy model.
-    SHAP values are now in calibrated score space (0–1), so thresholds and
-    coaching tips directly correspond to what the user sees on their report.
+    Beta CDF calibration: maps raw XGBoost [0,1] → calibrated [0,1].
+    Uses scipy-compatible CDF, matching calibrate_audio_golden_zones.py.
+    """
+    from scipy.stats import beta as beta_dist
+    a, b, _ = models['beta_params']
+    return float(np.clip(beta_dist.cdf(float(raw_score), float(a), float(b)), 0.0, 1.0))
 
-    The proxy model was trained on the same features as the base XGBoost model
-    but with calibrated scores as targets — so feature rankings are preserved
-    but the magnitudes reflect the calibrated output space.
+
+def score_to_label(score: float) -> str:
+    if score >= 0.75:  return "Highly Confident"
+    if score >= 0.50:  return "Confident"
+    if score >= 0.30:  return "Moderately Confident"
+    return "Needs Improvement"
+
+
+# ============================================================
+# SHAP ENGINE  (group-based, mirrors video service)
+# ============================================================
+def generate_shap_and_groups(
+    X: pd.DataFrame,
+    calibrated_score: float,
+    feature_values_dict: dict,
+) -> dict:
+    """
+    Computes SHAP values and builds group results exactly like the video service.
+    Returns both group_results (the structured UI data) and legacy fields.
     """
     try:
-        explainer = models['shap_explainer']
-        shap_values = explainer.shap_values(X)   # shape: (1, 45)
-        ev = explainer.expected_value
-        base_value = float(ev[0]) if hasattr(ev, '__len__') else float(ev)
+        explainer    = models['shap_explainer']
+        shap_features = models['shap_features']
+        golden_zones  = models['golden_zones']
 
-        contributors = []
-        for i, feat_name in enumerate(models['top_features']):
-            sv = float(shap_values[0][i])
+        # Align X to shap_features order, fill missing with 0
+        X_shap = pd.DataFrame(index=[0], columns=shap_features, dtype=float)
+        for col in shap_features:
+            X_shap[col] = feature_values_dict.get(col, 0.0)
+
+        X_np      = X_shap.to_numpy(dtype=np.float64)
+        shap_vals = explainer.shap_values(X_np)[0]
+        base_value = float(explainer.expected_value)
+
+        shap_dict = {feat: float(sv) for feat, sv in zip(shap_features, shap_vals)}
+
+        # ── Group results (the main structured output) ───────────────────────
+        group_results = build_audio_group_results(
+            shap_dict      = shap_dict,
+            feature_values = feature_values_dict,
+            overall_score  = calibrated_score,
+            base_value     = base_value,
+            golden_zones   = golden_zones,
+        )
+
+        # ── Legacy top_contributors list (for featureExplanations) ───────────
+        top_contributors = []
+        for feat, sv in sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True):
             if abs(sv) < 0.008:
                 continue
-            fval = float(X.iloc[0, i])
-            label = FEATURE_LABELS.get(feat_name, feat_name)
+            fval      = feature_values_dict.get(feat, 0.0)
+            label     = FEATURE_LABELS.get(feat, FRIENDLY_NAMES.get(feat, feat))
             direction = "positive" if sv > 0 else "negative"
-            tip = FEATURE_TIPS.get(feat_name, {}).get(
-                direction, get_generic_tip(label, sv > 0)
-            )
-            contributors.append({
-                "feature": feat_name,
-                "label": label,
-                "category": _FEATURE_TO_CATEGORY.get(feat_name, "Other"),
-                "value": round(fval, 4),
-                "shap_value": round(sv, 4),
-                "direction": "increased" if sv > 0 else "decreased",
+            tip       = FEATURE_TIPS.get(feat, {}).get(direction, _get_generic_tip(label, sv > 0))
+            top_contributors.append({
+                "feature":          feat,
+                "label":            label,
+                "value":            round(float(fval), 4),
+                "shap_value":       round(sv, 4),
+                "direction":        "increased" if sv > 0 else "decreased",
                 "impact_magnitude": round(abs(sv), 4),
-                "explanation": tip,
+                "explanation":      tip,
             })
 
-        contributors.sort(key=lambda x: x["impact_magnitude"], reverse=True)
+        neg_contributors = [c for c in top_contributors if c["direction"] == "decreased"]
+        pos_contributors = [c for c in top_contributors if c["direction"] == "increased"]
 
-        # Thresholds now operate in calibrated space.
-        all_neg = [
-            c for c in contributors
-            if c["direction"] == "decreased" and c["impact_magnitude"] > 0.03
-        ]
-
-        # Score-aware gating
-        if calibrated_score >= 0.70:
-            significant_neg = all_neg[:1]
-        elif calibrated_score >= 0.50:
-            significant_neg = all_neg[:2]
-        else:
-            significant_neg = all_neg
-
-        significant_pos = [c for c in contributors if c["direction"] == "increased"][:3]
-
-        top_contributors = significant_neg + significant_pos
+        _max_improvements = (
+            1 if calibrated_score >= 0.70 else
+            2 if calibrated_score >= 0.50 else
+            len(neg_contributors)
+        )
 
         return {
-            "base_value": round(base_value, 4),
-            "predicted_value": round(calibrated_score, 4),   # now calibrated
-            "top_contributors": top_contributors,
-            "top_improvements": significant_neg,
-            "top_strengths": significant_pos,
-            "all_shap_values": {
-                feat_name: round(float(shap_values[0][i]), 4)
-                for i, feat_name in enumerate(models['top_features'])
-            },
+            "group_results":     group_results,
+            "shap_dict":         shap_dict,
+            "base_value":        round(base_value, 4),
+            "top_contributors":  top_contributors,
+            "top_improvements":  neg_contributors[:_max_improvements],
+            "top_strengths":     pos_contributors[:3],
+            "all_shap_values":   {f: round(v, 4) for f, v in shap_dict.items()},
         }
 
     except Exception as e:
         logger.warning(f"SHAP explanation failed: {e}")
         return {
-            "base_value": 0.0,
-            "predicted_value": calibrated_score,
+            "group_results":    {},
+            "shap_dict":        {},
+            "base_value":       0.0,
             "top_contributors": [],
-            "all_shap_values": {},
+            "top_improvements": [],
+            "top_strengths":    [],
+            "all_shap_values":  {},
         }
-
-
-# ============================================================
-# SHAP-DRIVEN CATEGORY SENTIMENTS
-# ============================================================
-SHAP_CATEGORIES = {
-    "fluency": {
-        "label": "Fluency",
-        "features": [
-            "voiced_flow",                          # #6
-            "vocal_instability",                    # #24
-            "shimmerLocaldB_sma3nz_stddevNorm",     # #17
-            "StddevUnvoicedSegmentLength",          # #22
-            "MeanVoicedSegmentLengthSec",           # #32
-        ],
-    },
-    "energy": {
-        "label": "Energy",
-        "features": [
-            "loudnessPeaksPerSec",                  # #1
-            "loudness_sma3_percentile20.0",         # #2
-            "loudness_dynamics_power",              # #4
-            "vocal_projection",                     # #5
-            "loudness_sma3_meanRisingSlope",        # #11
-            "loudness_sma3_stddevNorm",             # #9
-        ],
-    },
-    "clarity": {
-        "label": "Clarity",
-        "features": [
-            "F2bandwidth_sma3nz_stddevNorm",        # #8
-            "slopeUV500-1500_sma3nz_amean",         # #12
-            "HNRdBACF_sma3nz_amean",                # #13
-            "F2frequency_sma3nz_stddevNorm",        # #16
-            "alphaRatioUV_sma3nz_amean",            # #20
-        ],
-    },
-}
-
-# Reverse lookup: feature name → parent category label
-_FEATURE_TO_CATEGORY: dict[str, str] = {}
-for _cat_key, _cat_def in SHAP_CATEGORIES.items():
-    for _feat in _cat_def["features"]:
-        _FEATURE_TO_CATEGORY[_feat] = _cat_def["label"]
-
-
-# helper function
-def _severity_status(shap_sum: float, calibrated_score: float) -> str:
-    if shap_sum > 0.02:
-        return "Helped Your Score"
-    if shap_sum >= -0.02:
-        return "Minimal Impact"
-
-    # Negative case — softened based on score
-    if calibrated_score >= 0.75:
-        return "Polish Opportunity"
-    elif calibrated_score >= 0.60:
-        return "Refinement Opportunity"
-    elif calibrated_score >= 0.50:
-        return "Needs Attention"
-    else:
-        return "Held Back Your Score"
-
-
-def _build_category_sentiments(
-    all_shap_values: dict,
-    wpm: float = 0.0,
-    calibrated_score: float = 0.5
-) -> dict:
-    """
-    For each category, sum the SHAP contributions of its features,
-    determine status, and identify the single biggest driver with
-    its human-readable label and coaching tip.
-    Also adds a 4th 'pace' category based on WPM thresholds.
-    """
-    categories = {}
-    for key, cat in SHAP_CATEGORIES.items():
-        feat_shaps = {f: all_shap_values.get(f, 0.0) for f in cat["features"]}
-        shap_sum = sum(feat_shaps.values())
-
-        status = _severity_status(shap_sum, calibrated_score)
-
-        top_feat = max(feat_shaps, key=lambda f: abs(feat_shaps[f]))
-        top_sv = feat_shaps[top_feat]
-        label = FEATURE_LABELS.get(top_feat, top_feat)
-
-        if top_sv > 0:
-            direction = "positive"
-        elif top_sv < 0:
-            direction = "negative"
-        else:
-            direction = "neutral"
-
-        if status == "Minimal Impact":
-            tip = None
-        else:
-            tip = FEATURE_TIPS.get(top_feat, {}).get(
-                direction if direction != "neutral" else "positive",
-                get_generic_tip(label, top_sv >= 0),
-            )
-        categories[key] = {
-            "label": cat["label"],
-            "status": status,
-            "shap_sum": round(shap_sum, 4),
-            "impact_pct": round(abs(shap_sum) * 100, 1),
-            "top_driver": {
-                "feature": top_feat,
-                "label": label,
-                "shap_value": round(top_sv, 4),
-                "direction": direction,
-                "tip": tip,
-            },
-        }
-
-        # ============================================================
-        # CATEGORY GATING (CRITICAL UX LAYER)
-        # ============================================================
-
-        negative_cats = [
-            (key, data)
-            for key, data in categories.items()
-            if data["shap_sum"] < -0.02
-        ]
-
-        # Sort by most negative
-        negative_cats.sort(key=lambda x: x[1]["shap_sum"])
-
-        # Limit based on score
-        if calibrated_score >= 0.75:
-            allowed_neg = 1
-        elif calibrated_score >= 0.60:
-            allowed_neg = 2
-        else:
-            allowed_neg = len(negative_cats)
-
-        # Downgrade extra negatives
-        for i, (key, data) in enumerate(negative_cats):
-            if i >= allowed_neg:
-                categories[key]["status"] = "Minimal Impact"
-                
-    # --- 4th Box: Speaking Pace (WPM-based, not SHAP) ---
-    if wpm > 0:
-        if wpm < 110:
-            pace_status = "Needs Improvement"
-            pace_tip = f"You're speaking at {wpm:.0f} WPM. That's a bit slow. Aim for a brisker pace to keep the interviewer engaged."
-        elif wpm > 170:
-            pace_status = "Needs Improvement"
-            pace_tip = f"You're racing at {wpm:.0f} WPM! Slow down slightly and use pauses to let your key points sink in."
-        else:
-            pace_status = "Good"
-            pace_tip = f"Your pace of {wpm:.0f} WPM is perfect. You sound calm, professional, and easy to follow."
-
-        categories["pace"] = {
-            "label": "Speaking Pace",
-            "status": pace_status,
-            "wpm": round(wpm, 1),
-            "top_driver": {
-                "feature": "wpm",
-                "label": "Words Per Minute",
-                "shap_value": 0.0,
-                "direction": "neutral",
-                "tip": pace_tip,
-            },
-        }
-
-    # "Rule of One" — find the single most negative SHAP feature across ALL categories
-    worst_feat = None
-    worst_sv = 0.0
-    worst_category = None
-    for key, cat_data in categories.items():
-        driver = cat_data["top_driver"]
-        if driver["shap_value"] < worst_sv:
-            worst_sv = driver["shap_value"]
-            worst_feat = driver
-            worst_category = cat_data["label"]
-
-    primary_goal = None
-    if worst_feat and worst_sv < -0.02:
-        primary_goal = {
-            "feature": worst_feat["feature"],
-            "label": worst_feat["label"],
-            "category": worst_category,
-            "tip": worst_feat["tip"],
-        }
-
-    return {"categories": categories, "primary_goal": primary_goal}
 
 
 # ============================================================
 # PREDICTION PIPELINE
 # ============================================================
-def beta_calibrate(raw_score: float) -> float:
-    """
-    Logistic-beta calibration fitted on 200 in-house rated clips.
-    Mirrors beta_curve from the calibration training script — must
-    not deviate, or scores will diverge from the rating team's scale.
-    """
-    c, d, e = models['beta_params']
-    x = float(np.clip(raw_score, 1e-5, 1.0 - 1e-5))
-    log_odds = c * np.log(x) + d * np.log(1.0 - x) + e
-    return float(1.0 / (1.0 + np.exp(-log_odds)))
-
-def score_to_label(score: float) -> str:
-    """Map 0-1 regression output to a text label (used in Gemini prompts and report)."""
-    if score >= 0.75:
-        return "Highly Confident"
-    if score >= 0.50:
-        return "Confident"
-    if score >= 0.30:
-        return "Moderately Confident"
-    return "Needs Improvement"
-
-
 def predict_confidence(audio_path: str, transcript_text: str | None = None) -> dict:
-    """
-    Full pipeline:
-      1. Extract eGeMAPSv02 features via openSMILE
-      2. Add 7 engineered features
-      3. Select the model's top 45 features
-      4. XGBoost regression → 0-1 confidence score
-      5. SHAP explanation of what drove the score
-      6. WPM from transcript (display metric)
-    """
     logger.info(f"Starting voice analysis: {audio_path}")
 
-    # 1 & 2 — feature extraction
+    # 1 & 2 — extract + engineer features
     features_df = extract_opensmile_features(audio_path)
     features_df = add_engineered_features(features_df)
 
-    # 3 — select top 45 in training order, fill any missing with 0
+    # 3 — select top 45 features for the main model
     top_features = models['top_features']
     X = pd.DataFrame(index=[0], columns=top_features, dtype=float)
     for col in top_features:
         X[col] = features_df[col].iloc[0] if col in features_df.columns else 0.0
 
-    # 4 — predict (no scaler needed, XGBoost is scale-invariant)
-    raw_score = float(models['final_model'].predict(X)[0])
-    clipped_raw = float(np.clip(raw_score, 0.0, 1.0))
-    confidence_score = beta_calibrate(clipped_raw)
-    logger.info(f"Score calibration: raw={clipped_raw:.4f} → calibrated={confidence_score:.4f}")
+    # 4 — predict + calibrate
+    raw_score       = float(np.clip(models['final_model'].predict(X)[0], 0.0, 1.0))
+    calibrated_score = beta_calibrate(raw_score)
+    logger.info(f"Score: raw={raw_score:.4f} → calibrated={calibrated_score:.4f}")
 
-    # 5 — SHAP explanations using calibrated score.
-    # The proxy model's SHAP values are already in calibrated space,
-    # so we pass confidence_score (not clipped_raw) as the reference point.
-    shap_result = generate_shap_explanations(X, confidence_score)
+    # Build a flat dict of all available feature values (for group results lookup)
+    feature_values_dict = features_df.iloc[0].to_dict()
+    # Add engineered features that were computed
+    for col in top_features:
+        if col not in feature_values_dict:
+            feature_values_dict[col] = float(X[col].iloc[0])
 
-    # 6 — WPM (display only)
+    # 5 — SHAP + group results
+    shap_result = generate_shap_and_groups(X, calibrated_score, feature_values_dict)
+
+    # 6 — WPM
     wpm = compute_wpm(audio_path, transcript_text)
 
     return {
-        "confidence_score": confidence_score,
-        "confidence_label": score_to_label(confidence_score),
-        "wpm": wpm,
-        "shap": shap_result,
-        "raw_features": features_df.iloc[0].to_dict(),
+        "confidence_score": calibrated_score,
+        "raw_score":        raw_score,
+        "confidence_label": score_to_label(calibrated_score),
+        "wpm":              wpm,
+        "shap":             shap_result,
+        "raw_features":     features_df.iloc[0].to_dict(),
+    }
+
+
+def generate_final_summary(score: float, neg_features: list, pos_features: list) -> dict:
+    if score > 0.6:
+        opening = "You have a very strong vocal presence! You sound ready for a high-level pitch."
+    elif score > 0.45:
+        opening = "Good solid performance. You sound professional and capable."
+    else:
+        opening = "A great start! With a few vocal tweaks, you can really boost your impact."
+
+    focus_note = best_trait = None
+    if neg_features:
+        main_fix_label = FEATURE_LABELS.get(neg_features[0].get("feature",""), "vocal habits")
+        focus_note = (
+            f"Don't worry too much about the {main_fix_label.lower()} right now. "
+            "Everyone's voice has natural 'fingerprints' that show up under AI analysis."
+        )
+        if pos_features:
+            best_trait_label = FEATURE_LABELS.get(pos_features[0].get("feature",""), "strengths")
+            best_trait = f"Focus on leaning into your {best_trait_label.upper()}, which is already working well."
+
+    return {
+        "opening":    opening,
+        "focus_note": focus_note,
+        "best_trait": best_trait,
+        "reminder": (
+            "This is a simulation. The best interviewers look for your passion and skills — "
+            "this AI is just here to help you polish the delivery!"
+        ),
     }
 
 
@@ -725,11 +905,6 @@ async def process_voice_analysis(
     start_time: datetime,
     transcript_text: str | None = None,
 ):
-    """
-    Runs asynchronously after Express queues it.
-    Builds the full result payload that matches the Prisma VoiceAnalysis
-    schema and saves it to Redis for Express to pick up.
-    """
     try:
         print(f"\n{'='*60}")
         print(f"VOICE ANALYSIS — Turn {turn_id} | Session {interview_id}")
@@ -741,84 +916,82 @@ async def process_voice_analysis(
         prediction = predict_confidence(audio_path, transcript_text)
         elapsed_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-        raw = prediction["raw_features"]
-        shap = prediction["shap"]
+        raw         = prediction["raw_features"]
+        shap        = prediction["shap"]
+        group_results = shap["group_results"]
 
-        # Derive backward-compatible schema fields from eGeMAPS features
-        # voiced_flow ≈ fraction of time voiced → pause_ratio ≈ 1 - voiced_flow
-        vsps = raw.get("VoicedSegmentsPerSec", 1.0) or 1.0
-        mvsl = raw.get("MeanVoicedSegmentLengthSec", 0.3) or 0.3
+        # Derived backward-compat fields
+        vsps            = raw.get("VoicedSegmentsPerSec", 1.0) or 1.0
+        mvsl            = raw.get("MeanVoicedSegmentLengthSec", 0.3) or 0.3
         voiced_fraction = min(1.0, float(vsps) * float(mvsl))
         pause_ratio_approx = max(0.0, round(1.0 - voiced_fraction, 4))
 
-
-        # BEFORE result dict
-        _max_improvements = (
-            1 if prediction["confidence_score"] >= 0.70
-            else 2 if prediction["confidence_score"] >= 0.50
-            else len(shap["top_improvements"])
-        )
         result = {
             "interviewTurnId": turn_id,
 
-            # Core model output
-            "confidenceLevel": round(prediction["confidence_score"], 4),       # 0-1
-            "confidenceLabelText": prediction["confidence_label"],              # for Gemini/report
+            # ── Core scores ──────────────────────────────────────────────────
+            "confidenceLevel":     round(prediction["confidence_score"], 4),
+            "confidenceLabelText": prediction["confidence_label"],
 
-            # Derived quality metrics (backward-compatible with Prisma schema)
-            "speakingQuality": round(prediction["confidence_score"], 4),
-            "vocalStability": round(
-                max(0.0, 1.0 - float(raw.get("jitterLocal_sma3nz_amean", 0) or 0)), 4
-            ),
-            "speakingFluency": round(voiced_fraction, 4),
-            "pitchMean": round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_amean", 0) or 0), 4),
-            "pitchStd": round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_stddevNorm", 0) or 0), 4),
-            "energyLevel": round(float(raw.get("equivalentSoundLevel_dBp", 0) or 0), 4),
-            "wordsPerMinute": prediction["wpm"],
-            "pauseRatio": pause_ratio_approx,
-            "jitter": round(float(raw.get("jitterLocal_sma3nz_amean", 0) or 0), 6),
-            "shimmer": round(float(raw.get("shimmerLocaldB_sma3nz_amean", 0) or 0), 6),
+            # ── Backward-compat voice metrics (Prisma VoiceAnalysis schema) ─
+            "speakingQuality":  round(prediction["confidence_score"], 4),
+            "vocalStability":   round(max(0.0, 1.0 - float(raw.get("jitterLocal_sma3nz_amean", 0) or 0)), 4),
+            "speakingFluency":  round(voiced_fraction, 4),
+            "pitchMean":        round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_amean", 0) or 0), 4),
+            "pitchStd":         round(float(raw.get("F0semitoneFrom27.5Hz_sma3nz_stddevNorm", 0) or 0), 4),
+            "energyLevel":      round(float(raw.get("equivalentSoundLevel_dBp", 0) or 0), 4),
+            "wordsPerMinute":   prediction["wpm"],
+            "pauseRatio":       pause_ratio_approx,
+            "jitter":           round(float(raw.get("jitterLocal_sma3nz_amean", 0) or 0), 6),
+            "shimmer":          round(float(raw.get("shimmerLocaldB_sma3nz_amean", 0) or 0), 6),
 
-            "modelVersion": "v2.1-egemaps-shap-betacal",
+            "modelVersion": "v2.2-egemaps-shap-betacal-zones",
 
-            # SHAP values stored in allProbabilities for DB (Json field)
+            # ── SHAP values (stored in allProbabilities for DB) ──────────────
             "allProbabilities": shap["all_shap_values"],
 
-            # rawFeatures includes eGeMAPS values + SHAP explanations
+            # ── Group results (top-level — mirrors video service exactly) ────
+            # The frontend reads this the same way it reads videoAnalysis.groupResults
+            "groupResults": group_results,
+
+            # ── rawFeatures: full eGeMAPS + explainability data ──────────────
             "rawFeatures": {
-                **{k: (round(float(v), 4) if isinstance(v, (int, float)) else v)
-                   for k, v in raw.items()},
+                **{
+                    k: (round(float(v), 4) if isinstance(v, (int, float, np.floating, np.integer)) else v)
+                    for k, v in raw.items()
+                },
+                # Structured group feedback (same as groupResults above, also embedded here)
+                "groupResults": group_results,
+                # Legacy fields kept for any existing frontend consumers
                 "shapExplanations": shap["top_contributors"],
-                "shapBaseValue": shap["base_value"],
-                # featureExplanations for existing frontend "Why this prediction" section
+                "shapBaseValue":    shap["base_value"],
                 "featureExplanations": [
                     c["explanation"]
-                    for c in shap["top_improvements"][:_max_improvements]
+                    for c in shap["top_improvements"]
                     if c.get("explanation")
                 ],
-                # SHAP-driven category sentiments for frontend UI boxes
-                "ui_sync": _build_category_sentiments(
-                    shap["all_shap_values"],
-                    prediction["wpm"],
-                    prediction["confidence_score"],   # PASS THIS
-                ),
-                # Coaching summary for report
                 "finalSummary": generate_final_summary(
                     prediction["confidence_score"],
-                    shap.get("top_improvements", []),
-                    shap.get("top_strengths", []),
+                    shap["top_improvements"],
+                    shap["top_strengths"],
                 ),
             },
 
-            "status": "completed",
+            "status":           "completed",
             "processingTimeMs": elapsed_ms,
-            "processedAt": datetime.now().isoformat(),
+            "processedAt":      datetime.now().isoformat(),
         }
 
-        print(f"Confidence: {result['confidenceLevel']*100:.1f}% ({result['confidenceLabelText']})")
-        print(f"WPM: {result['wordsPerMinute']}")
-        print(f"Top SHAP driver: {shap['top_contributors'][0]['label'] if shap['top_contributors'] else 'N/A'}")
-        print(f"Processing time: {elapsed_ms}ms")
+        # Console summary
+        print(f"Confidence  : {result['confidenceLevel']*100:.1f}% ({result['confidenceLabelText']})")
+        print(f"WPM         : {result['wordsPerMinute']}")
+        print(f"Group statuses:")
+        for gname, gdata in group_results.items():
+            if gname == "_metadata":
+                continue
+            icon = {"green":"🟢","yellow":"🟡","red":"🔴"}.get(gdata["status"],"?")
+            print(f"  {icon} {gname}: {gdata['impact_points']:+.1f}%  ({len(gdata['tips'])} tips)")
+        print(f"Processing  : {elapsed_ms}ms")
         print(f"{'='*60}\n")
 
         if redis_client:
@@ -840,11 +1013,10 @@ async def process_voice_analysis(
 
         error_result = {
             "interviewTurnId": turn_id,
-            "status": "failed",
-            "errorMessage": str(e),
-            "processedAt": datetime.now().isoformat(),
+            "status":          "failed",
+            "errorMessage":    str(e),
+            "processedAt":     datetime.now().isoformat(),
         }
-
         if redis_client:
             try:
                 redis_client.set(
@@ -863,28 +1035,24 @@ async def process_voice_analysis(
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "service": "Hirely Voice Analysis v2.0",
+        "status":       "ok",
+        "service":      "Hirely Voice Analysis v2.2",
         "models_loaded": bool(models.get("final_model")),
-        "shap_ready": bool(models.get("shap_explainer")),
-        "timestamp": datetime.now().isoformat(),
+        "shap_ready":   bool(models.get("shap_explainer")),
+        "zones_loaded": bool(models.get("golden_zones")),
+        "timestamp":    datetime.now().isoformat(),
     }
 
 
 class AnalysisRequest(BaseModel):
-    turn_id: int
+    turn_id:      int
     interview_id: str
-    audio_path: str
-    transcript: str | None = None
+    audio_path:   str
+    transcript:   str | None = None
 
 
 @app.post("/analyze-voice")
 async def analyze_voice(request_data: AnalysisRequest, background_tasks: BackgroundTasks):
-    """
-    Accepts JSON body from Express backend.
-    Queues voice analysis as a background task and returns immediately.
-    Express polls /result/{interview_id}/{turn_id} for the result.
-    """
     try:
         logger.info(f"Queued voice analysis — Turn {request_data.turn_id}")
         background_tasks.add_task(
@@ -896,9 +1064,9 @@ async def analyze_voice(request_data: AnalysisRequest, background_tasks: Backgro
             request_data.transcript,
         )
         return {
-            "status": "queued",
-            "turn_id": request_data.turn_id,
-            "message": "Voice analysis queued.",
+            "status":    "queued",
+            "turn_id":   request_data.turn_id,
+            "message":   "Voice analysis queued.",
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
@@ -908,7 +1076,6 @@ async def analyze_voice(request_data: AnalysisRequest, background_tasks: Backgro
 
 @app.get("/result/{interview_id}/{turn_id}")
 def get_result(interview_id: str, turn_id: int):
-    """Retrieve voice analysis result from Redis. Returns {status: pending} if not ready."""
     try:
         if not redis_client:
             return {"status": "error", "error": "Redis not connected"}
@@ -927,7 +1094,7 @@ def get_result(interview_id: str, turn_id: int):
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*60)
-    print("Starting Hirely Voice Analysis Service v2.0")
+    print("Starting Hirely Voice Analysis Service v2.2")
     print("Docs: http://localhost:8001/docs")
     print("="*60 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8001)
