@@ -1,0 +1,283 @@
+{
+    "categories": {},
+    "golden_zones": {
+        "loudness_sma3_percentile20.0": {
+            "min": 0.4789267975,
+            "max": 0.9728430675,
+            "mean": 0.755039168191689,
+            "direction": "INCREASING"
+        },
+        "loudnessPeaksPerSec": {
+            "min": 3.466318,
+            "max": 4.3655985,
+            "mean": 3.8922575348525474,
+            "direction": "INCREASING"
+        },
+        "vocal_projection": {
+            "min": 4.108457163839994,
+            "max": 8.370565040887113,
+            "mean": 6.5558448036664805,
+            "direction": "INCREASING"
+        },
+        "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
+            "min": -1.474578775,
+            "max": -1.174909125,
+            "mean": -1.358469226756032,
+            "direction": "DECREASING"
+        },
+        "loudness_dynamics_power": {
+            "min": 3.909361888974228,
+            "max": 8.121976912290824,
+            "mean": 6.1420589006208814,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_stddevNorm": {
+            "min": 0.511418005,
+            "max": 0.65215875,
+            "mean": 0.5828900884450402,
+            "direction": "DECREASING"
+        },
+        "F2amplitudeLogRelF0_sma3nz_stddevNorm": {
+            "min": -1.641517125,
+            "max": -1.27163475,
+            "mean": -1.4955758791018765,
+            "direction": "DECREASING"
+        },
+        "slopeUV500-1500_sma3nz_amean": {
+            "min": -0.013240348499999999,
+            "max": -0.00613507875,
+            "mean": -0.009799326790884718,
+            "direction": "DECREASING"
+        },
+        "F2bandwidth_sma3nz_stddevNorm": {
+            "min": 0.34845198,
+            "max": 0.4397007425,
+            "mean": 0.3946296289946381,
+            "direction": "INVERTED_U"
+        },
+        "F3amplitudeLogRelF0_sma3nz_amean": {
+            "min": -61.59413575,
+            "max": -39.64115150000001,
+            "mean": -50.79680227747989,
+            "direction": "INCREASING"
+        },
+        "hammarbergIndexV_sma3nz_stddevNorm": {
+            "min": 0.396879655,
+            "max": 0.5447907625,
+            "mean": 0.4930816671313673,
+            "direction": "INVERTED_U"
+        },
+        "F2amplitudeLogRelF0_sma3nz_amean": {
+            "min": -58.80161375,
+            "max": -36.64694725,
+            "mean": -47.98165700871314,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_meanRisingSlope": {
+            "min": 14.576737999999999,
+            "max": 27.430741,
+            "mean": 21.494795070241288,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_stddevRisingSlope": {
+            "min": 8.304669,
+            "max": 15.79943825,
+            "mean": 12.520002255898122,
+            "direction": "INCREASING"
+        },
+        "mfcc1_sma3_stddevNorm": {
+            "min": 0.475999875,
+            "max": 0.7868434249999999,
+            "mean": 0.7534445976407507,
+            "direction": "INVERTED_U"
+        },
+        "HNRdBACF_sma3nz_amean": {
+            "min": 1.9328083,
+            "max": 4.627897125,
+            "mean": 3.291124670261394,
+            "direction": "INVERTED_U"
+        },
+        "F2frequency_sma3nz_stddevNorm": {
+            "min": 0.15959977,
+            "max": 0.18801079999999998,
+            "mean": 0.17441299146112602,
+            "direction": "DECREASING"
+        },
+        "mfcc1V_sma3nz_stddevNorm": {
+            "min": 0.36801543000000003,
+            "max": 0.541398925,
+            "mean": 0.49914859525469163,
+            "direction": "INVERTED_U"
+        },
+        "F3frequency_sma3nz_stddevNorm": {
+            "min": 0.10817598,
+            "max": 0.123984645,
+            "mean": 0.11629953434986594,
+            "direction": "INVERTED_U"
+        },
+        "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
+            "min": 0.15115456,
+            "max": 0.252564085,
+            "mean": 0.20651436342493296,
+            "direction": "DECREASING"
+        },
+        "shimmerLocaldB_sma3nz_amean": {
+            "min": 1.234603775,
+            "max": 1.4156244,
+            "mean": 1.3370009205898123,
+            "direction": "INVERTED_U"
+        },
+        "MeanUnvoicedSegmentLength": {
+            "min": 0.0640714275,
+            "max": 0.10759215,
+            "mean": 0.09025332053351207,
+            "direction": "INVERTED_U"
+        },
+        "spectralFlux_sma3_amean": {
+            "min": 0.659901325,
+            "max": 1.47176395,
+            "mean": 1.1623879945844504,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_meanFallingSlope": {
+            "min": 9.9203985,
+            "max": 18.14178775,
+            "mean": 14.263552044101877,
+            "direction": "INCREASING"
+        },
+        "voiced_flow": {
+            "min": 0.7328846316395775,
+            "max": 0.8555246046472941,
+            "mean": 0.7891890584235174,
+            "direction": "INCREASING"
+        },
+        "mfcc2V_sma3nz_stddevNorm": {
+            "min": -2.6373418749999997,
+            "max": 1.369331675,
+            "mean": 0.7592422971983913,
+            "direction": "DECREASING"
+        },
+        "alphaRatioV_sma3nz_amean": {
+            "min": -11.32143575,
+            "max": -6.234996,
+            "mean": -8.859246821729224,
+            "direction": "INCREASING"
+        },
+        "vocal_instability": {
+            "min": 0.0457271591363088,
+            "max": 0.0799175425243635,
+            "mean": 0.06589769836822926,
+            "direction": "INVERTED_U"
+        },
+        "logRelF0-H1-H2_sma3nz_stddevNorm": {
+            "min": 1.9253123749999999,
+            "max": 4.370736225,
+            "mean": 2.2741918003083113,
+            "direction": "INVERTED_U"
+        },
+        "HNRdBACF_sma3nz_stddevNorm": {
+            "min": 1.0555767249999999,
+            "max": 2.0443191250000003,
+            "mean": 1.1930268832305628,
+            "direction": "INVERTED_U"
+        },
+        "hammarbergIndexUV_sma3nz_amean": {
+            "min": 7.3256748,
+            "max": 12.95682325,
+            "mean": 10.517381677399465,
+            "direction": "INVERTED_U"
+        },
+        "slopeV0-500_sma3nz_stddevNorm": {
+            "min": 0.33999462999999996,
+            "max": 1.102674775,
+            "mean": -2.295972295616622,
+            "direction": "INCREASING"
+        },
+        "spectralFlux_sma3_stddevNorm": {
+            "min": 0.7060886,
+            "max": 0.9097864250000001,
+            "mean": 0.8077995617560323,
+            "direction": "DECREASING"
+        },
+        "F3bandwidth_sma3nz_stddevNorm": {
+            "min": 0.3947518375,
+            "max": 0.514792295,
+            "mean": 0.4590876327613941,
+            "direction": "INCREASING"
+        },
+        "alphaRatioV_sma3nz_stddevNorm": {
+            "min": -1.067267675,
+            "max": -0.59935816,
+            "mean": -0.9172635895710456,
+            "direction": "INVERTED_U"
+        },
+        "loudness_sma3_stddevFallingSlope": {
+            "min": 5.498278475,
+            "max": 9.709816,
+            "mean": 7.856087252144772,
+            "direction": "INCREASING"
+        },
+        "mfcc3_sma3_stddevNorm": {
+            "min": 1.00035355,
+            "max": 2.799132975,
+            "mean": 6.926555479705094,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_pctlrange0-2": {
+            "min": 1.0562082,
+            "max": 1.976389925,
+            "mean": 1.5558478497989277,
+            "direction": "INCREASING"
+        },
+        "mfcc4V_sma3nz_stddevNorm": {
+            "min": -1.998441825,
+            "max": -0.7276845000000001,
+            "mean": 0.47260086411528157,
+            "direction": "INVERTED_U"
+        },
+        "mfcc4_sma3_stddevNorm": {
+            "min": -2.4109369999999997,
+            "max": -0.8346653749999999,
+            "mean": -1.1296351540482572,
+            "direction": "INVERTED_U"
+        },
+        "slopeUV0-500_sma3nz_amean": {
+            "min": -0.00845285275,
+            "max": 0.04131138275,
+            "mean": 0.017375866896782843,
+            "direction": "INVERTED_U"
+        },
+        "brightness_contrast": {
+            "min": -0.09050443150000001,
+            "max": -0.039289675249999996,
+            "mean": -0.06363814075201071,
+            "direction": "INVERTED_U"
+        },
+        "shimmerLocaldB_sma3nz_stddevNorm": {
+            "min": 0.57021974,
+            "max": 0.700640995,
+            "mean": 0.639636285844504,
+            "direction": "DECREASING"
+        },
+        "loudness_sma3_percentile50.0": {
+            "min": 0.9286088325,
+            "max": 1.7560531,
+            "mean": 1.3799374504959785,
+            "direction": "INCREASING"
+        },
+        "loudness_sma3_percentile80.0": {
+            "min": 1.6031844999999998,
+            "max": 2.930928525,
+            "mean": 2.310887023069705,
+            "direction": "INCREASING"
+        }
+    },
+    "global_stats": {
+        "score_min": 0.018691589,
+        "score_max": 1.0,
+        "score_mean": 0.4897941216315217,
+        "score_p25": 0.289719626,
+        "score_p75": 0.700934579,
+        "n_samples": 2760
+    }
+}
