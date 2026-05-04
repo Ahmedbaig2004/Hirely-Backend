@@ -4,10 +4,13 @@ dotenv.config();
 
 // Unambiguous Roman Urdu marker words — common function words that won't appear in English
 const URDU_MARKERS =
-  /\b(hai|hain|tha|thi|the|kiya|kar|raha|nahi|nhi|yeh|woh|kyun|pata|gaya)\b/i;
+  /\b(hai|hain|tha|thi|kiya|kar|raha|rahi|rahe|nahi|nhi|yeh|woh|kyun|pata|gaya|gayi|mein|mujhe|hum|aap|apko|ka|ki|ke)\b/gi;
+const MIN_ROMAN_URDU_MARKERS = 4;
 
 export function isRomanUrdu(text) {
-  return URDU_MARKERS.test(text);
+  if (!text) return false;
+  const matches = text.match(URDU_MARKERS) || [];
+  return matches.length >= MIN_ROMAN_URDU_MARKERS;
 }
 
 /**

@@ -520,6 +520,7 @@ async def run_video_analysis(
             f"Turn {turn_id} done — score={scaled_score:.4f}, "
             f"label={label}, {elapsed_ms}ms"
         )
+        logger.info(f"[video-service] Turn {turn_id} extraction completed successfully")
 
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)

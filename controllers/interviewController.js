@@ -9,10 +9,7 @@ import {
   getNextQuestion,
   generateFinalReport,
 } from "../services/interviewer.js";
-import {
-  evaluateAnswer,
-  evaluateAnswerBatch,
-} from "../services/retrieval.js";
+import { evaluateAnswer, evaluateAnswerBatch } from "../services/retrieval.js";
 import { analyzeDelivery } from "../services/deliveryAnalyzer.js";
 import { prisma } from "../config/db.js";
 import { generateAudio } from "../services/tts.js";
@@ -29,7 +26,7 @@ const redisClient = new Redis({
   token: process.env.REDIS_TOKEN,
 });
 
-const JOB_SPECIFIC_MAX_QUESTIONS = 2;
+const JOB_SPECIFIC_MAX_QUESTIONS = 10;
 
 /**
  * Initialize interview session
@@ -111,7 +108,8 @@ export const initInterview = async (req, res) => {
     });
 
     const sessionId = uuidv4();
-    const firstQuestion = analysis.questions[0];
+    const seededQuestions = analysis.questions.slice(0, 2);
+    const firstQuestion = seededQuestions[0];
     const interviewerVoice =
       req.body.interviewerVoice === "male" ? "male" : "female";
     const interviewMode = ["chat", "audio", "video"].includes(
@@ -124,7 +122,7 @@ export const initInterview = async (req, res) => {
       interviewType,
       config,
       jobDescription: jobDescription || null,
-      initialQuestions: analysis.questions,
+      initialQuestions: seededQuestions,
       gapAnalysis: analysis.gapAnalysis || null,
       userId: userId || "anonymous",
       interviewerVoice,
@@ -152,7 +150,7 @@ export const initInterview = async (req, res) => {
 
     res.json({
       sessionId,
-      analysis,
+      analysis: { ...analysis, questions: seededQuestions },
       firstQuestion,
       audio: audioBase64,
       audioMime,
@@ -221,18 +219,7 @@ export const submitAnswer = async (req, res) => {
       evaluationText = translatedText;
     }
 
-    // 3. Generate Next Question only — evaluation and delivery analysis are deferred to
-    // finalization where all turns are scored in parallel (no per-turn LLM grading here).
-    // getNextQuestion reads the raw transcript directly so no score is needed.
-    // Trigger parallel generation when queue has ≤1 item: after saveTurn shifts the queue,
-    // it will be empty, and parallelNextQ will be ready instead of blocking on a fallback call.
-    const nextQuestionNeeded =
-      !session.questionQueue || session.questionQueue.length <= 1;
-    const parallelNextQ = nextQuestionNeeded
-      ? await getNextQuestion(session, { question, answer: answerText })
-      : null;
-
-    // 4. Save Turn to State (Redis) — score/feedback null until finalization
+    // 3. Save Turn to State (Redis) - score/feedback null until finalization.
     const updatedSession = await stateManager.saveTurn(
       sessionId,
       question,
@@ -307,12 +294,15 @@ export const submitAnswer = async (req, res) => {
     }
 
     // 6. NEXT QUESTION & TTS LOGIC
-    // Use pre-generated queue first, then the parallel-generated question.
+    // Use only the two pre-generated seed questions, then generate adaptively.
     const queue = updatedSession.questionQueue;
     let nextQ =
       queue && queue.length > 0
         ? queue[0]
-        : (parallelNextQ ?? (await getNextQuestion(updatedSession)));
+        : await getNextQuestion(updatedSession, {
+            question,
+            answer: answerText,
+          });
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
@@ -447,7 +437,7 @@ async function doFinalization(sessionId, session) {
       .filter((idx) => idx !== null);
 
     if (audioTurnIndices.length > 0) {
-      const MAX_RETRIES = 10;
+      const MAX_RETRIES = 60;
       const RETRY_DELAY_MS = 1000;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const checks = await Promise.all(
@@ -474,7 +464,7 @@ async function doFinalization(sessionId, session) {
       .filter((idx) => idx !== null);
 
     if (videoTurnIndices.length > 0) {
-      const MAX_RETRIES = 15;
+      const MAX_RETRIES = 60;
       const RETRY_DELAY_MS = 1000;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const checks = await Promise.all(
@@ -549,6 +539,7 @@ async function doFinalization(sessionId, session) {
       score: evaluations[idx]?.score ?? 0,
       feedback: evaluations[idx]?.feedback ?? "",
       betterAnswer: evaluations[idx]?.betterAnswer ?? null,
+      recommendedDoc: evaluations[idx]?.recommendedDoc ?? null,
       deliveryAnalysis: deliveryAnalyses[idx] ?? null,
     }));
 
@@ -690,7 +681,13 @@ async function doFinalization(sessionId, session) {
             sentenceRestarts: turn.deliveryAnalysis?.sentenceRestarts ?? null,
             relevanceScore: turn.deliveryAnalysis?.relevanceScore ?? null,
             specificityScore: turn.deliveryAnalysis?.specificityScore ?? null,
-            deliveryFeedback: turn.deliveryAnalysis ?? null,
+            deliveryFeedback:
+              turn.deliveryAnalysis || turn.recommendedDoc
+                ? {
+                    ...(turn.deliveryAnalysis ?? {}),
+                    recommendedDoc: turn.recommendedDoc ?? null,
+                  }
+                : null,
             voiceAnalysis: turn.voiceAnalysis
               ? {
                   create: {
@@ -843,6 +840,24 @@ export const finalizeInterview = async (req, res) => {
   } catch (e) {
     console.error("Finalize kickoff error:", e);
     return res.status(500).json({ error: "Failed to start finalization" });
+  }
+};
+
+/**
+ * Cancel an active interview — deletes the Redis session so the user
+ * can start fresh without leaving orphaned state.
+ */
+export const cancelInterview = async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+  try {
+    await stateManager.deleteSession(sessionId);
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("Cancel interview error:", e);
+    return res.status(500).json({ error: "Failed to cancel interview" });
   }
 };
 

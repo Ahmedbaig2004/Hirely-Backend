@@ -15,6 +15,18 @@ const NextQuestionSchema = z.object({
   reason: z.string(),
 });
 
+const PRIMARY_NEXT_QUESTION_TIMEOUT_MS = 15000;
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 const FinalReportSchema = z.object({
   decision: z.enum(["Strong Hire", "Hire", "Weak Hire", "No Hire"]),
   technicalLevel: z
@@ -119,14 +131,12 @@ Rules:
  *   the raw transcript directly instead of waiting for a numeric score.
  */
 export async function getNextQuestion(session, currentTurn = null) {
-  if (session.questionQueue && session.questionQueue.length > 0) {
-    return session.questionQueue[0];
-  }
-
   const historyText = session.history
     .map(
       (h) =>
-        `Q: ${h.question}\nA: ${h.answer}\nScore: ${h.score}/100\nDifficulty: ${h.difficulty || "Medium"}`,
+        `Q: ${h.question}\nA: ${h.answer}\nScore: ${
+          h.score == null ? "Not scored yet" : `${h.score}/100`
+        }\nDifficulty: ${h.difficulty || "Medium"}\nTopic: ${h.topic || "General"}`,
     )
     .join("\n---\n");
 
@@ -134,6 +144,7 @@ export async function getNextQuestion(session, currentTurn = null) {
   const lastDifficulty = lastTurn?.difficulty || "Medium";
   const interviewType = session.interviewType || "JOB_SPECIFIC";
   const config = session.config || {};
+  const selectedDifficulty = config.difficulty || "Medium";
 
   const currentTurnSection = currentTurn
     ? `CURRENT QUESTION (just answered — transcript below, not yet scored):
@@ -141,8 +152,10 @@ Q: ${currentTurn.question}
 A: ${currentTurn.answer}
 Difficulty so far: ${lastDifficulty}
 
-Judge the quality of this answer yourself from the transcript to decide whether to increase, decrease, or maintain difficulty.`
-    : `LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastTurn?.score ?? 50}/100.`;
+Use this transcript to choose the next question. For fixed-difficulty modes, adapt only the content, not the difficulty.`
+    : `LAST QUESTION was difficulty: ${lastDifficulty}. Score is ${
+        lastTurn?.score == null ? "not available yet" : `${lastTurn.score}/100`
+      }.`;
 
   let contextSection;
   let taskDescription;
@@ -174,6 +187,43 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.`;
   }
 
+  if (interviewType === "TECHNICAL") {
+    const topicsCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
+    contextSection = `INTERVIEW TYPE: Technical - ${config.stack || "General"} (${selectedDifficulty} level)
+Topics already covered: ${topicsCovered || "(none yet)"}`;
+    taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
+- Keep the difficulty exactly "${selectedDifficulty}". Do not increase or decrease it.
+- Adapt by choosing the most useful next topic or follow-up based on the candidate's transcript.
+- Cover a topic NOT already covered above.
+- Do NOT ask about the same concept twice.
+- Set the "difficulty" field to exactly "${selectedDifficulty}".`;
+  } else if (interviewType === "BEHAVIORAL") {
+    const competenciesCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
+    contextSection = `INTERVIEW TYPE: Behavioral - STAR method (${selectedDifficulty} level)
+Competencies already covered: ${competenciesCovered || "(none yet)"}`;
+    taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
+- Keep the difficulty exactly "${selectedDifficulty}". Do not increase or decrease it.
+- Adapt by probing the most useful competency, weakness, missing STAR element, or follow-up area from the candidate's transcript.
+- Cover a competency NOT already covered above (e.g. leadership, conflict, failure, prioritization, teamwork).
+- Do NOT repeat competencies.
+- Set the "difficulty" field to exactly "${selectedDifficulty}".`;
+  }
+
+  const modeDifficultyRules =
+    interviewType === "TECHNICAL" || interviewType === "BEHAVIORAL"
+      ? `FIXED DIFFICULTY OVERRIDE:
+    - Ignore any instruction above that says to increase or decrease difficulty.
+    - This mode uses the user's selected difficulty, so the next question difficulty must be exactly "${selectedDifficulty}".
+    - Adapt only the content: topic, competency, follow-up angle, specificity, or depth within that same difficulty.`
+      : `JOB-SPECIFIC DIFFICULTY:
+    - Difficulty may increase, decrease, or stay the same based on the candidate's answer quality and the JD requirements.`;
+
   const prompt = `
     You are a Dynamic Interviewer.
     ${contextSection}
@@ -188,10 +238,26 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     - Weak answer (vague, incorrect, "I don't know"): DECREASE difficulty or stay the same. Do NOT keep asking Hard questions after a poor answer.
     - Always set the "difficulty" field to exactly one of: "Easy", "Medium", or "Hard".
 
+    ${modeDifficultyRules}
+
     TASK: ${taskDescription}
   `;
 
-  return await generateStructured(prompt, NextQuestionSchema);
+  try {
+    return await withTimeout(
+      generateStructured(prompt, NextQuestionSchema),
+      PRIMARY_NEXT_QUESTION_TIMEOUT_MS,
+      "Adaptive question generation with gemini-2.5-flash",
+    );
+  } catch (error) {
+    console.warn(
+      "Adaptive question generation failed on gemini-2.5-flash, retrying with gemini-2.5-flash-lite:",
+      error.message,
+    );
+    return await generateStructured(prompt, NextQuestionSchema, {
+      model: "gemini-2.5-flash-lite",
+    });
+  }
 }
 
 /**
