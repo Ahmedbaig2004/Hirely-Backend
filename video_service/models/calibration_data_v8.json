@@ -1,0 +1,546 @@
+{
+    "categories": {},
+    "golden_zones": {
+        "mouth_expressiveness_mean": {
+            "min": -0.05471776053309438,
+            "max": 0.7030584812164307,
+            "mean": 0.3639831920358541,
+            "direction": "INCREASING"
+        },
+        "mouth_expressiveness_std": {
+            "min": 0.7390100061893463,
+            "max": 1.0322105884552002,
+            "mean": 0.880339779758799,
+            "direction": "INCREASING"
+        },
+        "mouth_expressiveness_max": {
+            "min": 1.9615556895732882,
+            "max": 3.2427233457565308,
+            "mean": 2.6068500544497932,
+            "direction": "INCREASING"
+        },
+        "head_nodding_mean": {
+            "min": -0.19396849349141115,
+            "max": 0.37512731552124023,
+            "mean": 0.1215982882977055,
+            "direction": "INCREASING"
+        },
+        "head_nodding_std": {
+            "min": 0.5449819266796112,
+            "max": 0.953787311911583,
+            "mean": 0.777593019388724,
+            "direction": "INVERTED_U"
+        },
+        "head_nodding_max": {
+            "min": 1.445604383945465,
+            "max": 3.4154760241508484,
+            "mean": 2.6231508375509924,
+            "direction": "INVERTED_U"
+        },
+        "head_tilt_mean": {
+            "min": -0.46801670640707016,
+            "max": 0.4411236047744751,
+            "mean": 0.004594201818142304,
+            "direction": "DECREASING"
+        },
+        "head_tilt_std": {
+            "min": 0.5108509361743927,
+            "max": 0.8579165041446686,
+            "mean": 0.6909514124086802,
+            "direction": "INCREASING"
+        },
+        "head_tilt_max": {
+            "min": 0.7456347644329071,
+            "max": 1.8513849973678589,
+            "mean": 1.2990510370136927,
+            "direction": "INCREASING"
+        },
+        "shoulder_alignment_mean": {
+            "min": -0.4664562717080116,
+            "max": 0.4412796720862388,
+            "mean": -0.0006711964999102852,
+            "direction": "INVERTED_U"
+        },
+        "shoulder_alignment_std": {
+            "min": 0.32610110938549036,
+            "max": 0.5483734458684921,
+            "mean": 0.46781370073988815,
+            "direction": "INCREASING"
+        },
+        "shoulder_alignment_max": {
+            "min": 0.4894023835659027,
+            "max": 1.4812843203544617,
+            "mean": 1.0281008649671424,
+            "direction": "INCREASING"
+        },
+        "forward_lean_mean": {
+            "min": -0.36472002416849136,
+            "max": 0.005187432747334175,
+            "mean": -0.1322770249528348,
+            "direction": "INVERTED_U"
+        },
+        "forward_lean_std": {
+            "min": 0.2430507354438305,
+            "max": 0.5768411457538605,
+            "mean": 0.45877465389237027,
+            "direction": "INVERTED_U"
+        },
+        "forward_lean_max": {
+            "min": 0.44044118374586105,
+            "max": 1.9851259589195251,
+            "mean": 1.468999603130868,
+            "direction": "INVERTED_U"
+        },
+        "left_hand_velocity_mean": {
+            "min": -0.1294504068791866,
+            "max": 0.6411131620407104,
+            "mean": 0.28733432108729967,
+            "direction": "INCREASING"
+        },
+        "left_hand_velocity_std": {
+            "min": 0.7582544386386871,
+            "max": 1.192873477935791,
+            "mean": 0.9573145900515543,
+            "direction": "INCREASING"
+        },
+        "left_hand_velocity_max": {
+            "min": 2.664671301841736,
+            "max": 2.868857145309448,
+            "mean": 2.5302574043256647,
+            "direction": "INCREASING"
+        },
+        "right_hand_velocity_mean": {
+            "min": -0.1532183699309826,
+            "max": 0.6707219034433365,
+            "mean": 0.2729652701080709,
+            "direction": "INCREASING"
+        },
+        "right_hand_velocity_std": {
+            "min": 0.7340768128633499,
+            "max": 1.1796821653842928,
+            "mean": 0.9413505731069524,
+            "direction": "INCREASING"
+        },
+        "right_hand_velocity_max": {
+            "min": 2.558612406253815,
+            "max": 2.8207905292510986,
+            "mean": 2.478648377350275,
+            "direction": "INCREASING"
+        },
+        "left_hand_expressiveness_mean": {
+            "min": -0.12784528359770767,
+            "max": 0.6942061632871628,
+            "mean": 0.29432957976941776,
+            "direction": "INCREASING"
+        },
+        "left_hand_expressiveness_std": {
+            "min": 0.8027493059635162,
+            "max": 1.1228952705860138,
+            "mean": 0.9353046906383141,
+            "direction": "INCREASING"
+        },
+        "left_hand_expressiveness_max": {
+            "min": 2.823076069355011,
+            "max": 3.123443841934204,
+            "mean": 2.7681576346681602,
+            "direction": "INCREASING"
+        },
+        "right_hand_expressiveness_mean": {
+            "min": -0.14424714446067807,
+            "max": 0.6956407725811005,
+            "mean": 0.2769085518609179,
+            "direction": "INCREASING"
+        },
+        "right_hand_expressiveness_std": {
+            "min": 0.7677065879106522,
+            "max": 1.106032520532608,
+            "mean": 0.9178120412040448,
+            "direction": "INCREASING"
+        },
+        "right_hand_expressiveness_max": {
+            "min": 2.7454771399497986,
+            "max": 3.0877720713615417,
+            "mean": 2.7128873118779797,
+            "direction": "INCREASING"
+        },
+        "body_stillness_mean": {
+            "min": -0.337471142411232,
+            "max": 0.502172201871872,
+            "mean": 0.11776330471224408,
+            "direction": "INCREASING"
+        },
+        "body_stillness_std": {
+            "min": 0.5237808376550674,
+            "max": 0.9398525208234788,
+            "mean": 0.7333822336749755,
+            "direction": "INVERTED_U"
+        },
+        "body_stillness_max": {
+            "min": 1.0634226500988007,
+            "max": 2.00765323638916,
+            "mean": 1.5397806470457842,
+            "direction": "INCREASING"
+        },
+        "hand_gesture_range_mean": {
+            "min": -0.3125819265842438,
+            "max": -0.3125819265842438,
+            "mean": -0.11583082606827004,
+            "direction": "INVERTED_U"
+        },
+        "hand_gesture_range_std": {
+            "min": 2.9802322387695312e-08,
+            "max": 2.9802322387695312e-08,
+            "mean": 3.9866005164989524e-08,
+            "direction": "INVERTED_U"
+        },
+        "hand_gesture_range_max": {
+            "min": -0.3125818967819214,
+            "max": -0.3125818967819214,
+            "mean": -0.11583079795042674,
+            "direction": "INVERTED_U"
+        },
+        "smile_intensity_mean": {
+            "min": -0.17065190151333803,
+            "max": 0.6496082693338394,
+            "mean": 0.32765708899452767,
+            "direction": "INCREASING"
+        },
+        "smile_intensity_std": {
+            "min": 0.598375603556633,
+            "max": 1.4236540496349337,
+            "mean": 0.9826843930257619,
+            "direction": "INCREASING"
+        },
+        "smile_intensity_max": {
+            "min": 2.4772287011146545,
+            "max": 4.241555571556091,
+            "mean": 3.1372906725624223,
+            "direction": "INCREASING"
+        },
+        "gaze_consistency_std": {
+            "min": 0.4485946521162986,
+            "max": 0.849197119474411,
+            "mean": 0.6476505926607744,
+            "direction": "INVERTED_U"
+        },
+        "shoulder_alignment_cv": {
+            "min": 0.5392837235131777,
+            "max": 2.1440174515954373,
+            "mean": 4.622691596595552,
+            "direction": "INCREASING"
+        },
+        "shoulder_alignment_peak_ratio": {
+            "min": 1.1285112553900132,
+            "max": 4.896999541501646,
+            "mean": 10.232373608336147,
+            "direction": "INCREASING"
+        },
+        "shoulder_alignment_skew_approx": {
+            "min": 1.8908690203467715,
+            "max": 2.5215786143345196,
+            "mean": 2.25222897009311,
+            "direction": "INVERTED_U"
+        },
+        "shoulder_alignment_stability": {
+            "min": 1.823574356641688,
+            "max": 3.0665242425767576,
+            "mean": 2.579955571334908,
+            "direction": "DECREASING"
+        },
+        "head_tilt_cv": {
+            "min": 0.7982001796788105,
+            "max": 3.1405657578060606,
+            "mean": 5.303848779870878,
+            "direction": "INCREASING"
+        },
+        "head_tilt_peak_ratio": {
+            "min": 1.4165587915698803,
+            "max": 6.006374283749657,
+            "mean": 10.313486919039374,
+            "direction": "INCREASING"
+        },
+        "head_tilt_skew_approx": {
+            "min": 1.5297458004380395,
+            "max": 2.3080094162166933,
+            "mean": 1.9480451779114893,
+            "direction": "INVERTED_U"
+        },
+        "head_tilt_stability": {
+            "min": 1.165615481086876,
+            "max": 1.9575146423392993,
+            "mean": 1.7191917260262157,
+            "direction": "DECREASING"
+        },
+        "gaze_consistency_cv": {
+            "min": 0.6266202313882481,
+            "max": 3.0118321511433908,
+            "mean": 3.7613327778963903,
+            "direction": "INVERTED_U"
+        },
+        "gaze_consistency_peak_ratio": {
+            "min": 1.2045775263351068,
+            "max": 5.059138984488673,
+            "mean": 6.521227096522953,
+            "direction": "INVERTED_U"
+        },
+        "gaze_consistency_skew_approx": {
+            "min": 0.9347717986164198,
+            "max": 1.9418944053296856,
+            "mean": 1.479339558224228,
+            "direction": "DECREASING"
+        },
+        "gaze_consistency_stability": {
+            "min": 1.1775819548741033,
+            "max": 2.2291805535264633,
+            "mean": 1297.0556886996978,
+            "direction": "INVERTED_U"
+        },
+        "left_hand_velocity_cv": {
+            "min": 1.4024101655207315,
+            "max": 4.335571414671607,
+            "mean": 28.678987827762853,
+            "direction": "INVERTED_U"
+        },
+        "left_hand_velocity_peak_ratio": {
+            "min": 3.494347131701211,
+            "max": 13.447360122076,
+            "mean": 88.93932196714258,
+            "direction": "INCREASING"
+        },
+        "left_hand_velocity_skew_approx": {
+            "min": 1.8467598914991354,
+            "max": 3.262694644904853,
+            "mean": 2.5899142217068336,
+            "direction": "DECREASING"
+        },
+        "left_hand_velocity_stability": {
+            "min": 0.8383112128159219,
+            "max": 1.3188350670122602,
+            "mean": 1.2210270217076757,
+            "direction": "DECREASING"
+        },
+        "smile_intensity_cv": {
+            "min": 1.240237240271929,
+            "max": 4.426147963602525,
+            "mean": 12.753451626163418,
+            "direction": "INCREASING"
+        },
+        "smile_intensity_peak_ratio": {
+            "min": 3.7930287227048405,
+            "max": 16.905980731245826,
+            "mean": 48.32356764283668,
+            "direction": "INCREASING"
+        },
+        "smile_intensity_skew_approx": {
+            "min": 2.4407913806730384,
+            "max": 4.819600476347854,
+            "mean": 3.7577988797443123,
+            "direction": "DECREASING"
+        },
+        "smile_intensity_stability": {
+            "min": 0.7024193304443753,
+            "max": 1.671188385642545,
+            "mean": 88.19789628141875,
+            "direction": "DECREASING"
+        },
+        "right_hand_expressiveness_cv": {
+            "min": 1.2924274462669,
+            "max": 4.50315275255259,
+            "mean": 8.398861466760058,
+            "direction": "INVERTED_U"
+        },
+        "right_hand_expressiveness_peak_ratio": {
+            "min": 3.55757557758116,
+            "max": 13.751082280572307,
+            "mean": 25.419939869572378,
+            "direction": "INVERTED_U"
+        },
+        "right_hand_expressiveness_skew_approx": {
+            "min": 2.0811393454146954,
+            "max": 3.3816424952450967,
+            "mean": 2.843999782772583,
+            "direction": "DECREASING"
+        },
+        "right_hand_expressiveness_stability": {
+            "min": 0.9041317787462575,
+            "max": 1.3025795620782463,
+            "mean": 1.2409302483383775,
+            "direction": "DECREASING"
+        },
+        "hand_gesture_range_cv": {
+            "min": 9.534213116935334e-08,
+            "max": 9.534213116935334e-08,
+            "mean": 9.37099023568976e-08,
+            "direction": "INVERTED_U"
+        },
+        "hand_gesture_range_peak_ratio": {
+            "min": -0.9999967055068119,
+            "max": -0.9999967055068119,
+            "mean": -0.8579679974702014,
+            "direction": "INVERTED_U"
+        },
+        "hand_gesture_range_skew_approx": {
+            "min": 0.02893984771620613,
+            "max": 0.02893984771620613,
+            "mean": 0.026643280433490162,
+            "direction": "INVERTED_U"
+        },
+        "hand_gesture_range_stability": {
+            "min": 971060.1522837939,
+            "max": 971060.1522837939,
+            "mean": 964173.0721897065,
+            "direction": "INVERTED_U"
+        },
+        "forward_lean_cv": {
+            "min": 0.6807339658545033,
+            "max": 3.3451531209270886,
+            "mean": 11.883355183205598,
+            "direction": "INCREASING"
+        },
+        "forward_lean_peak_ratio": {
+            "min": 1.2216732588504005,
+            "max": 11.385964666591835,
+            "mean": 43.24017320906167,
+            "direction": "INCREASING"
+        },
+        "forward_lean_skew_approx": {
+            "min": 2.8723236461660897,
+            "max": 3.8492504153706255,
+            "mean": 3.4034662842821977,
+            "direction": "INVERTED_U"
+        },
+        "forward_lean_stability": {
+            "min": 1.733580380779528,
+            "max": 4.114350415643759,
+            "mean": 3.1492975724385626,
+            "direction": "INVERTED_U"
+        },
+        "head_nodding_cv": {
+            "min": 1.6875400208684632,
+            "max": 5.808984948024396,
+            "mean": 11.264324731083335,
+            "direction": "INCREASING"
+        },
+        "head_nodding_peak_ratio": {
+            "min": 5.133337842903609,
+            "max": 18.298685820802163,
+            "mean": 36.303654395906115,
+            "direction": "INVERTED_U"
+        },
+        "head_nodding_skew_approx": {
+            "min": 2.683270449301465,
+            "max": 3.5284741349873663,
+            "mean": 3.1488688736692314,
+            "direction": "DECREASING"
+        },
+        "head_nodding_stability": {
+            "min": 1.0484526700702974,
+            "max": 1.8349198917151823,
+            "mean": 1.502186382147066,
+            "direction": "INVERTED_U"
+        },
+        "left_hand_expressiveness_cv": {
+            "min": 1.293323358261145,
+            "max": 4.121224411575603,
+            "mean": 5.953722178696312,
+            "direction": "INVERTED_U"
+        },
+        "left_hand_expressiveness_peak_ratio": {
+            "min": 3.717023597235888,
+            "max": 13.661896699982329,
+            "mean": 18.870998684642203,
+            "direction": "INCREASING"
+        },
+        "left_hand_expressiveness_skew_approx": {
+            "min": 2.1045415320664427,
+            "max": 3.3888390305321296,
+            "mean": 2.837453327136166,
+            "direction": "DECREASING"
+        },
+        "left_hand_expressiveness_stability": {
+            "min": 0.8905544986594867,
+            "max": 1.2457310001766384,
+            "mean": 1.2154204548889342,
+            "direction": "DECREASING"
+        },
+        "body_stillness_cv": {
+            "min": 0.9910418039999012,
+            "max": 4.070263590273246,
+            "mean": 6.375914602307995,
+            "direction": "INVERTED_U"
+        },
+        "body_stillness_peak_ratio": {
+            "min": 1.9623166226275819,
+            "max": 9.509391557098475,
+            "mean": 14.24037511333689,
+            "direction": "INCREASING"
+        },
+        "body_stillness_skew_approx": {
+            "min": 1.567405157935122,
+            "max": 2.641304554801624,
+            "mean": 2.110887786041952,
+            "direction": "DECREASING"
+        },
+        "body_stillness_stability": {
+            "min": 1.063995592452168,
+            "max": 1.9091936459369492,
+            "mean": 1.6964464108695514,
+            "direction": "INVERTED_U"
+        },
+        "mouth_expressiveness_cv": {
+            "min": 1.202512798145119,
+            "max": 3.748369759850291,
+            "mean": 7.206828845931238,
+            "direction": "INVERTED_U"
+        },
+        "mouth_expressiveness_peak_ratio": {
+            "min": 3.585250553895441,
+            "max": 9.84172195270951,
+            "mean": 18.944285035992575,
+            "direction": "INVERTED_U"
+        },
+        "mouth_expressiveness_skew_approx": {
+            "min": 2.1947339589095334,
+            "max": 2.8809688687794544,
+            "mean": 2.5929326937480583,
+            "direction": "DECREASING"
+        },
+        "mouth_expressiveness_stability": {
+            "min": 0.9687938904323784,
+            "max": 1.3531604108349704,
+            "mean": 1.2125037912219734,
+            "direction": "DECREASING"
+        },
+        "right_hand_velocity_cv": {
+            "min": 1.418303809454073,
+            "max": 4.636157432230281,
+            "mean": 13.846887643806959,
+            "direction": "INVERTED_U"
+        },
+        "right_hand_velocity_peak_ratio": {
+            "min": 3.3768676796027877,
+            "max": 13.724679132458785,
+            "mean": 40.61473553484141,
+            "direction": "INCREASING"
+        },
+        "right_hand_velocity_skew_approx": {
+            "min": 1.7841613356382957,
+            "max": 3.243232005490481,
+            "mean": 2.591976752620144,
+            "direction": "DECREASING"
+        },
+        "right_hand_velocity_stability": {
+            "min": 0.8476852402768901,
+            "max": 1.362266169431436,
+            "mean": 1.2425851278682762,
+            "direction": "DECREASING"
+        }
+    },
+    "global_stats": {
+        "score_min": 0.2099348604679107,
+        "score_max": 0.7367299199104309,
+        "scaled_score_min": 0.0,
+        "scaled_score_max": 1.0,
+        "n_samples": 2760
+    }
+}

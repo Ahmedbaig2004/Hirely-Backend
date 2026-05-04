@@ -1,16 +1,12 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { generateStructured } from "../config/gemini.js";
 import { z } from "zod";
 import dotenv from "dotenv";
-// 🆕 Note: The helper now returns both raw data AND generated insights
 import { getVoiceAnalysesForInterview } from "./voiceAnalysisHelper.js";
 
 dotenv.config();
 
-// Updated to Gemini 3 Flash for peak performance
-const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: process.env.GOOGLE_API_KEY,
-});
+const W_AUDIO = 0.5;
+const W_VIDEO = 0.5;
 
 const NextQuestionSchema = z.object({
   question: z.string(),
@@ -49,8 +45,6 @@ const VoiceInsightsSchema = z.object({
 async function generateAIVoiceInsights(voiceAnalyses) {
   if (!voiceAnalyses || voiceAnalyses.length === 0) return [];
 
-  // Build per-turn summaries. v2.0+ sessions include SHAP-identified drivers;
-  // older sessions fall back to raw metrics. Both paths produce useful Gemini input.
   const turnSummaries = voiceAnalyses.map((v, i) => {
     const shapExplanations = v.rawFeatures?.shapExplanations || [];
     const hasShap = shapExplanations.length > 0;
@@ -63,18 +57,16 @@ async function generateAIVoiceInsights(voiceAnalyses) {
     };
 
     if (hasShap) {
-      // v2.0: include top SHAP drivers so Gemini knows what the model actually detected
       return {
         ...base,
         topFactors: shapExplanations.slice(0, 3).map((e) => ({
           feature: e.label,
-          impact: e.direction, // "increased" or "decreased"
-          explanation: e.explanation, // already-written coaching tip
+          impact: e.direction,
+          explanation: e.explanation,
         })),
       };
     }
 
-    // Fallback for pre-v2.0 sessions
     return {
       ...base,
       pauseRatioPct: Math.round((v.pauseRatio || 0) * 100),
@@ -110,8 +102,7 @@ Rules:
 - Do not refer to specific turn numbers`;
 
   try {
-    const structuredLlm = llm.withStructuredOutput(VoiceInsightsSchema);
-    const result = await structuredLlm.invoke(prompt);
+    const result = await generateStructured(prompt, VoiceInsightsSchema);
     return result.insights;
   } catch (e) {
     console.warn("⚠️ AI voice insights generation failed:", e.message);
@@ -144,8 +135,6 @@ export async function getNextQuestion(session, currentTurn = null) {
   const interviewType = session.interviewType || "JOB_SPECIFIC";
   const config = session.config || {};
 
-  // When currentTurn is provided we skip the numeric score and let Gemini judge
-  // difficulty from the transcript itself — enabling parallel execution with eval.
   const currentTurnSection = currentTurn
     ? `CURRENT QUESTION (just answered — transcript below, not yet scored):
 Q: ${currentTurn.question}
@@ -155,12 +144,14 @@ Difficulty so far: ${lastDifficulty}
 Judge the quality of this answer yourself from the transcript to decide whether to increase, decrease, or maintain difficulty.`
     : `LAST QUESTION was difficulty: ${lastDifficulty}, candidate scored: ${lastTurn?.score ?? 50}/100.`;
 
-  // Build context section based on interview type
   let contextSection;
   let taskDescription;
 
   if (interviewType === "TECHNICAL") {
-    const topicsCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    const topicsCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
     contextSection = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level)
 Topics already covered: ${topicsCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
@@ -168,7 +159,10 @@ Topics already covered: ${topicsCovered || "(none yet)"}`;
 - Cover a topic NOT already covered above.
 - Do NOT ask about the same concept twice.`;
   } else if (interviewType === "BEHAVIORAL") {
-    const competenciesCovered = session.history.map((h) => h.topic).filter(Boolean).join(", ");
+    const competenciesCovered = session.history
+      .map((h) => h.topic)
+      .filter(Boolean)
+      .join(", ");
     contextSection = `INTERVIEW TYPE: Behavioral — STAR method (${config.difficulty || "Medium"} level)
 Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
@@ -176,7 +170,6 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
 - Cover a competency NOT already covered above (e.g. leadership, conflict, failure, prioritization, teamwork).
 - Do NOT repeat competencies.`;
   } else {
-    // JOB_SPECIFIC — original behavior
     contextSection = `JOB CONTEXT: ${(session.jobDescription || "").substring(0, 500)}...`;
     taskDescription = `Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.`;
   }
@@ -198,8 +191,7 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     TASK: ${taskDescription}
   `;
 
-  const structuredLlm = llm.withStructuredOutput(NextQuestionSchema);
-  return await structuredLlm.invoke(prompt);
+  return await generateStructured(prompt, NextQuestionSchema);
 }
 
 /**
@@ -215,9 +207,9 @@ export async function generateFinalReport(
   prefetchedVoiceData = null,
   interviewType = "JOB_SPECIFIC",
   config = null,
+  prefetchedVideoData = null,
 ) {
   // 1. Calculate Technical Score (difficulty-adjusted)
-  // Detect role seniority from job description (JOB_SPECIFIC) or config difficulty (others)
   let roleSeniority = "mid";
   if (interviewType === "JOB_SPECIFIC" && jobDescription) {
     const jdLower = jobDescription.toLowerCase();
@@ -237,8 +229,8 @@ export async function generateFinalReport(
       config.difficulty === "Hard"
         ? "senior"
         : config.difficulty === "Easy"
-        ? "junior"
-        : "mid";
+          ? "junior"
+          : "mid";
   }
 
   const difficultyRank = { Easy: 0, Medium: 1, Hard: 2 };
@@ -247,13 +239,9 @@ export async function generateFinalReport(
   function adjustScoreForDifficulty(rawScore, difficulty) {
     const gap = (difficultyRank[difficulty] ?? 1) - roleBaseRank[roleSeniority];
     if (gap > 0) {
-      // Question is ABOVE the candidate's expected level (stretch)
-      // Floor: struggling on stretch is normal — don't let it tank the score
-      // Boost: acing a stretch question deserves a reward
       const floored = Math.max(rawScore, 50);
       return rawScore >= 70 ? Math.min(rawScore + 10, 100) : floored;
     }
-    // Question matches or is below level — raw score stands
     return rawScore;
   }
 
@@ -278,8 +266,6 @@ export async function generateFinalReport(
       : null;
 
   // 2. Fetch interpreted Voice Data
-  // If pre-fetched data is provided (from the controller), use it directly to avoid
-  // a duplicate Redis read. Otherwise fall back to fetching from Redis.
   let voiceAnalyses = [];
   try {
     if (prefetchedVoiceData !== null) {
@@ -303,13 +289,11 @@ export async function generateFinalReport(
       voiceAnalyses.length
     : null;
 
-  // AI-generated insights: one LLM call synthesizes all turns into coherent, non-repetitive feedback
   console.log(
     `🤖 Generating AI voice insights for ${voiceAnalyses.length} turns...`,
   );
   const allVocalInsights = await generateAIVoiceInsights(voiceAnalyses);
 
-  // Delivery insights summary for the prompt
   const deliveryInsights =
     turnsWithDelivery.length > 0
       ? turnsWithDelivery
@@ -327,7 +311,6 @@ export async function generateFinalReport(
     )
     .join("\n\n");
 
-  // Build interview context description for the prompt
   let interviewContextLine;
   if (interviewType === "TECHNICAL" && config) {
     interviewContextLine = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level, ${config.questionCount || history.length} questions)`;
@@ -336,8 +319,36 @@ export async function generateFinalReport(
   } else {
     interviewContextLine = `INTERVIEW TYPE: Job-Specific\n    - Resume Gaps: ${JSON.stringify(gapAnalysis)}`;
   }
+  const videoAnalyses = prefetchedVideoData || [];
+  const hasVideoData = videoAnalyses.length > 0;
+  const videoScore = hasVideoData
+    ? videoAnalyses.reduce((sum, v) => sum + v.confidenceLevel * 100, 0) /
+      videoAnalyses.length
+    : null;
+  const fusedConfidenceValues = history
+    .map((turn) => {
+      const S_audio = turn.voiceAnalysis?.confidenceLevel ?? null;
+      const S_video = turn.videoAnalysis?.confidenceLevel ?? null;
 
-  // 4. The "Expert Recruiter" Prompt
+      if (S_audio !== null && S_video !== null) {
+        return W_AUDIO * S_audio + W_VIDEO * S_video;
+      }
+      if (S_audio !== null) return S_audio;
+      if (S_video !== null) return S_video;
+      return null;
+    })
+    .filter((score) => score !== null);
+  const fusedScore =
+    fusedConfidenceValues.length > 0
+      ? parseFloat(
+          (
+            (fusedConfidenceValues.reduce((sum, score) => sum + score, 0) /
+              fusedConfidenceValues.length) *
+            100
+          ).toFixed(2),
+        )
+      : null;
+
   const prompt = `
     You are an expert Technical Hiring Manager.
 
@@ -357,6 +368,9 @@ export async function generateFinalReport(
     - Per-question breakdown:
     ${deliveryInsights}
 
+    BODY LANGUAGE DATA:
+    - Video Confidence Score: ${videoScore !== null ? videoScore.toFixed(1) + "/100" : "N/A (no video data)"}
+
     TASK:
     Evaluate the overall candidate considering technical knowledge, vocal delivery, AND answer quality/structure.
     Look for "Confidence Mismatches": If the technical score is high but vocal insights mention
@@ -366,24 +380,27 @@ export async function generateFinalReport(
     DIFFICULTY CURVE: If the candidate answered Easy/Medium questions well but struggled on Hard stretch questions, treat this as a POSITIVE signal for junior/mid roles — they demonstrated competence at their level and the system pushed them to their ceiling. Only treat Hard question struggles negatively for Senior roles where Hard is the expected baseline.
   `;
 
-  const structuredLlm = llm.withStructuredOutput(FinalReportSchema);
-  const result = await structuredLlm.invoke(prompt);
+  const result = await generateStructured(prompt, FinalReportSchema);
+
+  // 4b. Aggregate Video Score
 
   // 5. Final Combined Payload for the Database & UI
-  // Content quality blends technical accuracy + delivery quality
   const contentQuality =
     deliveryScore !== null
       ? technicalScore * 0.6 + deliveryScore * 0.4
       : technicalScore;
 
-  // Fusion weights: content 60%, vocal 40% (interim — no video yet)
-  // When video is added: content 41%, video 32%, vocal 27%
-  // For chat-only interviews with no voice data, combined = contentQuality only
-  const combined = voiceScore !== null
-    ? contentQuality * 0.6 + voiceScore * 0.4
-    : contentQuality;
+  let combined;
+  if (voiceScore !== null && videoScore !== null) {
+    combined = contentQuality * 0.41 + videoScore * 0.32 + voiceScore * 0.27;
+  } else if (voiceScore !== null) {
+    combined = contentQuality * 0.6 + voiceScore * 0.4;
+  } else if (videoScore !== null) {
+    combined = contentQuality * 0.56 + videoScore * 0.44;
+  } else {
+    combined = contentQuality;
+  }
 
-  // Delivery summary for frontend
   const deliverySummary =
     turnsWithDelivery.length > 0
       ? {
@@ -424,6 +441,8 @@ export async function generateFinalReport(
     scores: {
       technical: parseFloat(technicalScore.toFixed(1)),
       voice: voiceScore !== null ? parseFloat(voiceScore.toFixed(1)) : null,
+      video: videoScore !== null ? parseFloat(videoScore.toFixed(1)) : null,
+      fusedScore,
       delivery:
         deliveryScore !== null ? parseFloat(deliveryScore.toFixed(1)) : null,
       contentQuality: parseFloat(contentQuality.toFixed(1)),

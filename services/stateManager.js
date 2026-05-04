@@ -18,6 +18,7 @@ export const stateManager = {
       gapAnalysis: data.gapAnalysis || null,
       userId: data.userId,
       interviewerVoice: data.interviewerVoice || "female",
+      interviewMode: data.interviewMode || "audio",
       // ✅ TRACK CURRENT QUESTION (Initialize with the first one)
       currentQuestion: data.initialQuestions[0],
       history: [],

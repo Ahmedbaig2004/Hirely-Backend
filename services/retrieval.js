@@ -1,28 +1,15 @@
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generate, embedText, batchEmbedTexts } from "../config/gemini.js";
 import { prisma } from "../config/db.js";
 import similarity from "compute-cosine-similarity";
 import dotenv from "dotenv";
 dotenv.config();
-
-// 1. Initialize Models
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "gemini-embedding-001", // 👈 force v1
-});
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-
-// CHANGE 1: Use the stable model to prevent 404 errors
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
-
-// CHANGE 2: Removed the manual 'function cosineSimilarity' (Dead code)
 
 /**
  * 🔍 Retrieve Context
  * Accepts an optional pre-computed qVector to avoid a duplicate embedding call.
  */
 async function retrieveContext(question, existingQVector = null) {
-  const qVector = existingQVector || await embeddings.embedQuery(question);
+  const qVector = existingQVector || (await embedText(question));
   const vectorString = `[${qVector.join(",")}]`;
 
   // Get Top 3 chunks
@@ -40,7 +27,13 @@ async function retrieveContext(question, existingQVector = null) {
 /**
  * 🤖 The Judge: LLM Evaluation
  */
-async function evaluateWithLLM(question, answer, contextString, roleContext, difficulty = "Medium") {
+async function evaluateWithLLM(
+  question,
+  answer,
+  contextString,
+  roleContext,
+  difficulty = "Medium",
+) {
   const prompt = `
     You are a Technical Interviewer evaluating a candidate.
 
@@ -88,8 +81,9 @@ async function evaluateWithLLM(question, answer, contextString, roleContext, dif
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const text = await generate(prompt, {
+      model: "gemini-2.5-flash",
+    });
     const jsonStr = text
       .replace(/```json/g, "")
       .replace(/```/g, "")
@@ -104,7 +98,12 @@ async function evaluateWithLLM(question, answer, contextString, roleContext, dif
 /**
  * 🚀 Main Function
  */
-async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "Medium") {
+async function evaluateAnswer(
+  question,
+  userAnswer,
+  roleContext,
+  difficulty = "Medium",
+) {
   console.log("\n" + "=".repeat(60));
   console.log("🤖 HIRELY AI JUDGE");
   console.log("=".repeat(60));
@@ -112,12 +111,10 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
   console.log(`🗣️  A: ${userAnswer}`);
 
   try {
-    // 1. Embed question + answer in parallel
+    // 1. Embed question + answer sequentially to reduce rate-limit bursts
     console.log("\n📊 Calculating Semantic Similarity...");
-    const [qVector, aVector] = await Promise.all([
-      embeddings.embedQuery(question),
-      embeddings.embedQuery(userAnswer),
-    ]);
+    const qVector = await embedText(question);
+    const aVector = await embedText(userAnswer);
 
     const rawSimilarity = similarity(qVector, aVector) || 0;
     const similarityPercent = (rawSimilarity * 100).toFixed(1);
@@ -152,7 +149,6 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
       console.log("   --------------------------------------------------");
       contextDocs.forEach((doc, i) => {
         const source = doc.metadata?.source || "Unknown";
-        // Clean newlines for preview
         const preview = doc.content.replace(/\n/g, " ").substring(0, 80);
         console.log(`   [Chunk ${i + 1}] 🔗 ${source}`);
         console.log(`              📝 "${preview}..."`);
@@ -160,11 +156,10 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
       console.log("   --------------------------------------------------");
     }
 
-    // Combine text for the LLM
     const contextString = contextDocs.map((d) => d.content).join("\n\n");
 
     // 4. LLM Grading
-    console.log("\n⚖️  Sending to Gemini 1.5 for Grading...");
+    console.log("\n⚖️  Sending to Gemini 3.0 for Grading...");
     const evaluation = await evaluateWithLLM(
       question,
       userAnswer,
@@ -178,7 +173,16 @@ async function evaluateAnswer(question, userAnswer, roleContext, difficulty = "M
     printResult(evaluation);
     return evaluation;
   } catch (error) {
-    console.error("❌ Evaluation Error:", error.message);
+    const message = error?.message ? String(error.message) : "Unknown error";
+    const isCritical =
+      message.includes("429") ||
+      message.includes("RESOURCE_EXHAUSTED") ||
+      message.includes("500") ||
+      message.includes("INTERNAL");
+    console.error("❌ Evaluation Error:", message);
+    if (isCritical) {
+      throw new Error(message);
+    }
     return { error: "System Error" };
   }
 }
@@ -200,4 +204,101 @@ if (process.argv[2]) {
   evaluateAnswer(q, a, ctx);
 }
 
-export { evaluateAnswer };
+async function evaluateAnswerBatch(turns, roleContext) {
+  const allTexts = [];
+  for (const turn of turns) {
+    allTexts.push(turn.question);
+    allTexts.push(turn.evaluationText || turn.answer);
+  }
+
+  console.log(
+    `\n📦 Batch-embedding ${allTexts.length} texts (${turns.length} turns) in 1 API call...`,
+  );
+  const allVectors = await batchEmbedTexts(allTexts);
+  console.log(`   ✅ Batch embedding complete.`);
+
+  const results = [];
+
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    const qVector = allVectors[i * 2];
+    const aVector = allVectors[i * 2 + 1];
+    const question = turn.question;
+    const userAnswer = turn.evaluationText || turn.answer;
+    const difficulty = turn.difficulty || "Medium";
+
+    console.log("\n" + "=".repeat(60));
+    console.log("🤖 HIRELY AI JUDGE");
+    console.log("=".repeat(60));
+    console.log(`❓ Q: ${question}`);
+    console.log(`🗣️  A: ${userAnswer}`);
+
+    try {
+      const rawSimilarity = similarity(qVector, aVector) || 0;
+      const similarityPercent = (rawSimilarity * 100).toFixed(1);
+      console.log(`\n📊 Similarity Score: ${similarityPercent}%`);
+
+      if (rawSimilarity < 0.3) {
+        console.log(`🛑 REJECTED: Below 30% threshold.`);
+        const result = {
+          score: 0,
+          correctness: "Irrelevant",
+          feedback: "Your answer appears to be off-topic.",
+          betterAnswer:
+            "N/A - The answer provided was unrelated to the technical question.",
+        };
+        printResult(result);
+        results.push(result);
+        continue;
+      }
+
+      console.log("   ✅ Passed Threshold (>30%).");
+
+      console.log("\n📚 Retrieving Official Documentation...");
+      const contextDocs = await retrieveContext(question, qVector);
+
+      if (!contextDocs || contextDocs.length === 0) {
+        console.warn("   ⚠️ No context found in DB.");
+      } else {
+        console.log("   --------------------------------------------------");
+        contextDocs.forEach((doc, j) => {
+          const source = doc.metadata?.source || "Unknown";
+          const preview = doc.content.replace(/\n/g, " ").substring(0, 80);
+          console.log(`   [Chunk ${j + 1}] 🔗 ${source}`);
+          console.log(`              📝 "${preview}..."`);
+        });
+        console.log("   --------------------------------------------------");
+      }
+
+      const contextString = contextDocs.map((d) => d.content).join("\n\n");
+
+      console.log("\n⚖️  Sending to Gemini for Grading...");
+      const evaluation = await evaluateWithLLM(
+        question,
+        userAnswer,
+        contextString || "No context provided.",
+        roleContext,
+        difficulty,
+      );
+
+      if (!evaluation) throw new Error("AI Service Unavailable");
+
+      printResult(evaluation);
+      results.push(evaluation);
+    } catch (error) {
+      const message = error?.message ? String(error.message) : "Unknown error";
+      const isCritical =
+        message.includes("429") ||
+        message.includes("RESOURCE_EXHAUSTED") ||
+        message.includes("500") ||
+        message.includes("INTERNAL");
+      console.error("❌ Evaluation Error:", message);
+      if (isCritical) throw new Error(message);
+      results.push({ error: "System Error" });
+    }
+  }
+
+  return results;
+}
+
+export { evaluateAnswer, evaluateAnswerBatch };

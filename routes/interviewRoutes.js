@@ -6,6 +6,8 @@ import {
   submitAnswer,
   getVoiceProgress,
   finalizeInterview,
+  getFinalizeStatus,
+  cancelInterview,
 } from "../controllers/interviewController.js";
 
 const router = express.Router();
@@ -30,12 +32,26 @@ router.post(
 );
 
 // Submit answer (Protected by AI Limiter)
-router.post("/submit-answer", aiLimiter, upload.single("audio"), submitAnswer);
+router.post(
+  "/submit-answer",
+  aiLimiter,
+  upload.fields([
+    { name: "audio", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
+  submitAnswer,
+);
 
 // Voice analysis progress polling
 router.get("/voice-progress/:sessionId", getVoiceProgress);
 
-// Finalize interview (generate report after all voice analyses complete)
+// Finalize interview (kicks off background processing)
 router.post("/finalize-interview", finalizeInterview);
+
+// Poll finalization status
+router.get("/finalize-status/:sessionId", getFinalizeStatus);
+
+// Cancel active interview — deletes Redis session
+router.delete("/:sessionId", cancelInterview);
 
 export default router;

@@ -20,6 +20,8 @@ model Interview {
   userId         String   // <--- LINK TO SUPABASE USER ID
   finalScore     Float?
   finalFeedback  Json?    // Store the "Final Report" JSON here
+  status         String   @default("processing")
+  errorLog       String?
   createdAt      DateTime @default(now())
   
   // Link to Candidate (Optional for now if you don't have auth)
@@ -58,6 +60,9 @@ model InterviewTurn {
 
   // Voice analysis relationship
   voiceAnalysis   VoiceAnalysis?
+
+  // Video analysis relationship
+  videoAnalysis   VideoAnalysis?
 
   createdAt   DateTime @default(now())
 
@@ -98,6 +103,25 @@ model VoiceAnalysis {
   processingTimeMs    Int?
 
   // Timestamps
+  processedAt         DateTime?
+  createdAt           DateTime @default(now())
+}
+
+model VideoAnalysis {
+  id                  Int      @id @default(autoincrement())
+  interviewTurnId     Int      @unique
+  interviewTurn       InterviewTurn @relation(fields: [interviewTurnId], references: [id], onDelete: Cascade)
+
+  confidenceLevel     Float?
+  confidenceLabelText String?
+  rawScore            Float?
+  modelVersion        String?
+  rawFeatures         Json?
+
+  status              String   @default("pending")
+  errorMessage        String?
+  processingTimeMs    Int?
+
   processedAt         DateTime?
   createdAt           DateTime @default(now())
 }
