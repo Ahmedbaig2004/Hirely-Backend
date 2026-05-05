@@ -133,7 +133,7 @@ export const initInterview = async (req, res) => {
 
     let audioBase64 = null;
     let audioMime = null;
-    if (process.env.ENABLE_TTS === "true") {
+    if (process.env.ENABLE_TTS === "true" && interviewMode !== "chat") {
       try {
         const result = await generateAudio(
           firstQuestion.question,
@@ -191,9 +191,13 @@ export const submitAnswer = async (req, res) => {
 
     // 2. Fetch session for context + current question difficulty
     const session = await stateManager.getSession(sessionId);
-    const currentDifficulty = session?.currentQuestion?.difficulty || "Medium";
+    if (!session) {
+      return res.status(404).json({ error: "Session not found or expired." });
+    }
+    const askedQuestion = session.currentQuestion?.question || question;
     const sessionInterviewType = session?.interviewType || "JOB_SPECIFIC";
     const sessionConfig = session?.config || {};
+    const sessionInterviewMode = session?.interviewMode || "audio";
 
     // Build role context for evaluateAnswer based on interview type
     let roleContext;
@@ -222,7 +226,7 @@ export const submitAnswer = async (req, res) => {
     // 3. Save Turn to State (Redis) - score/feedback null until finalization.
     const updatedSession = await stateManager.saveTurn(
       sessionId,
-      question,
+      askedQuestion,
       answerText,
       null, // evaluation deferred
       answerMode,
@@ -284,8 +288,13 @@ export const submitAnswer = async (req, res) => {
 
     // 5. CHECK GAME OVER - Return immediately, let frontend poll + finalize
     if (updatedSession.history.length >= maxQuestions) {
+      const hasRecordedTurns = updatedSession.history.some(
+        (turn) => turn.answerMode === "audio" || turn.answerMode === "video",
+      );
       console.log(
-        "🏁 Interview Finished. Returning to frontend for voice analysis polling...",
+        hasRecordedTurns
+          ? "Interview Finished. Returning to frontend for recording analysis polling..."
+          : "Interview Finished. Returning to frontend for text-only report finalization...",
       );
       return res.json({
         isFinished: true,
@@ -300,7 +309,7 @@ export const submitAnswer = async (req, res) => {
       queue && queue.length > 0
         ? queue[0]
         : await getNextQuestion(updatedSession, {
-            question,
+            question: askedQuestion,
             answer: answerText,
           });
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
@@ -309,7 +318,11 @@ export const submitAnswer = async (req, res) => {
     const interviewerVoice = session.interviewerVoice || "female";
     let audioBase64 = null;
     let audioMime = null;
-    if (process.env.ENABLE_TTS === "true" && nextQ?.question) {
+    if (
+      process.env.ENABLE_TTS === "true" &&
+      sessionInterviewMode !== "chat" &&
+      nextQ?.question
+    ) {
       try {
         const result = await generateAudio(nextQ.question, interviewerVoice);
         if (result) {
@@ -346,17 +359,15 @@ export const getVoiceProgress = async (req, res) => {
     const history = session?.history || [];
     const audioTurnIndices = [];
     history.forEach((turn, idx) => {
-      // Include audio turns and legacy turns (no answerMode field)
-      if (turn.answerMode === "audio" || !turn.answerMode) {
+      // Video answers submit audio too, so they also need voice analysis.
+      if (
+        turn.answerMode === "audio" ||
+        turn.answerMode === "video" ||
+        !turn.answerMode
+      ) {
         audioTurnIndices.push(idx + 1);
       }
     });
-
-    // If no audio turns, everything is done
-    const total = audioTurnIndices.length;
-    if (total === 0) {
-      return res.json({ completed: 0, total: 0, allDone: true, statuses: [] });
-    }
 
     let completed = 0;
     const statuses = [];
@@ -407,11 +418,15 @@ export const getVoiceProgress = async (req, res) => {
       }
     }
 
+    const total = audioTurnIndices.length;
+
     res.json({
       completed,
       total,
       allDone: completed >= total && videoCompleted >= videoTotal,
       statuses,
+      samplesCompleted: completed + videoCompleted,
+      samplesTotal: total + videoTotal,
       video: {
         completed: videoCompleted,
         total: videoTotal,
@@ -430,10 +445,26 @@ export const getVoiceProgress = async (req, res) => {
  */
 async function doFinalization(sessionId, session) {
   const uploadDir = path.join(process.cwd(), "uploads", sessionId);
+  const setFinalizeStatus = async (patch) => {
+    await redisClient.set(
+      `finalize_status:${sessionId}`,
+      JSON.stringify({
+        status: "processing",
+        questionsEvaluated: 0,
+        questionsTotal: session.history.length,
+        ...patch,
+      }),
+      { ex: 600 },
+    );
+  };
   try {
     // 1. Wait for voice analyses to complete (only for audio turns)
     const audioTurnIndices = session.history
-      .map((turn, idx) => (turn.answerMode === "audio" ? idx + 1 : null))
+      .map((turn, idx) =>
+        turn.answerMode === "audio" || turn.answerMode === "video"
+          ? idx + 1
+          : null,
+      )
       .filter((idx) => idx !== null);
 
     if (audioTurnIndices.length > 0) {
@@ -520,8 +551,19 @@ async function doFinalization(sessionId, session) {
         errorLog: null,
       },
     });
+    await setFinalizeStatus({
+      questionsEvaluated: 0,
+      questionsTotal: session.history.length,
+    });
+
     const [evaluations, deliveryAnalyses] = await Promise.all([
-      evaluateAnswerBatch(session.history, finalRoleContext),
+      evaluateAnswerBatch(session.history, finalRoleContext, {
+        onProgress: ({ evaluated, total }) =>
+          setFinalizeStatus({
+            questionsEvaluated: evaluated,
+            questionsTotal: total,
+          }),
+      }),
       Promise.all(
         session.history.map((turn) =>
           analyzeDelivery(
@@ -601,10 +643,17 @@ async function doFinalization(sessionId, session) {
       0,
     );
     const averageScore = Math.round(totalScore / enrichedHistory.length);
+    const recordedTurnNumbers = enrichedHistory
+      .map((turn, idx) =>
+        turn.answerMode === "audio" || turn.answerMode === "video"
+          ? idx + 1
+          : null,
+      )
+      .filter((idx) => idx !== null);
 
-    // 4. Generate AI report and upload audio files in parallel
+    // 4. Generate AI report and upload recorded audio files in parallel
     console.log(
-      `☁️  Uploading ${enrichedHistory.length} audio files to Supabase Storage...`,
+      `Uploading ${recordedTurnNumbers.length} audio files to Supabase Storage...`,
     );
     const [finalReport, audioUrls] = await Promise.all([
       generateFinalReport(
@@ -620,13 +669,12 @@ async function doFinalization(sessionId, session) {
       (async () => {
         const urls = {};
         await Promise.all(
-          Array.from({ length: enrichedHistory.length }, (_, i) => i + 1).map(
-            async (i) => {
-              const localPath = path.join(uploadDir, `turn_${i}.wav`);
+          recordedTurnNumbers.map(async (turnNumber) => {
+              const localPath = path.join(uploadDir, `turn_${turnNumber}.wav`);
               if (!fs.existsSync(localPath)) return;
               try {
                 const buffer = fs.readFileSync(localPath);
-                const storagePath = `${session.userId}/${sessionId}/turn_${i}.webm`;
+                const storagePath = `${session.userId}/${sessionId}/turn_${turnNumber}.webm`;
                 const { error } = await supabaseAdmin.storage
                   .from("interview-audios")
                   .upload(storagePath, buffer, {
@@ -637,16 +685,15 @@ async function doFinalization(sessionId, session) {
                   const { data } = supabaseAdmin.storage
                     .from("interview-audios")
                     .getPublicUrl(storagePath);
-                  urls[i] = data.publicUrl;
-                  console.log(`  ✅ Turn ${i} uploaded`);
+                  urls[turnNumber] = data.publicUrl;
+                  console.log(`  Turn ${turnNumber} uploaded`);
                 } else {
-                  console.warn(`  ⚠️ Turn ${i} upload failed:`, error.message);
+                  console.warn(`  Turn ${turnNumber} upload failed:`, error.message);
                 }
               } catch (uploadErr) {
-                console.warn(`  ⚠️ Turn ${i} upload error:`, uploadErr.message);
+                console.warn(`  Turn ${turnNumber} upload error:`, uploadErr.message);
               }
-            },
-          ),
+            }),
         );
         return urls;
       })(),
@@ -738,6 +785,8 @@ async function doFinalization(sessionId, session) {
       `finalize_status:${sessionId}`,
       JSON.stringify({
         status: "completed",
+        questionsEvaluated: session.history.length,
+        questionsTotal: session.history.length,
         finalReport,
       }),
       { ex: 600 },
@@ -762,6 +811,7 @@ async function doFinalization(sessionId, session) {
         `finalize_status:${sessionId}`,
         JSON.stringify({
           status: "failed",
+          questionsTotal: session?.history?.length ?? 0,
           error: e.message || "Failed to finalize interview",
         }),
         { ex: 600 },
@@ -817,6 +867,8 @@ export const finalizeInterview = async (req, res) => {
       `finalize_status:${sessionId}`,
       JSON.stringify({
         status: "processing",
+        questionsEvaluated: 0,
+        questionsTotal: session.history.length,
       }),
       { ex: 600 },
     );

@@ -549,7 +549,9 @@ if (process.argv[2]) {
   evaluateAnswer(q, a, ctx);
 }
 
-async function evaluateAnswerBatch(turns, roleContext) {
+async function evaluateAnswerBatch(turns, roleContext, options = {}) {
+  const onProgress =
+    typeof options.onProgress === "function" ? options.onProgress : null;
   const nonAnswerReasons = turns.map((turn) =>
     getNonAnswerReason(turn.evaluationText || turn.answer, turn.question),
   );
@@ -607,6 +609,11 @@ async function evaluateAnswerBatch(turns, roleContext) {
         const result = buildRejectedAnswerResult(nonAnswerReason);
         printResult(result);
         results.push(result);
+        await onProgress?.({
+          evaluated: results.length,
+          total: turns.length,
+          turnIndex: i,
+        });
         continue;
       }
 
@@ -625,6 +632,11 @@ async function evaluateAnswerBatch(turns, roleContext) {
         };
         printResult(result);
         results.push(result);
+        await onProgress?.({
+          evaluated: results.length,
+          total: turns.length,
+          turnIndex: i,
+        });
         continue;
       }
 
@@ -665,6 +677,11 @@ async function evaluateAnswerBatch(turns, roleContext) {
       const result = { ...evaluation, recommendedDoc };
       printResult(result);
       results.push(result);
+      await onProgress?.({
+        evaluated: results.length,
+        total: turns.length,
+        turnIndex: i,
+      });
     } catch (error) {
       const message = error?.message ? String(error.message) : "Unknown error";
       const isCritical =
@@ -675,6 +692,11 @@ async function evaluateAnswerBatch(turns, roleContext) {
       console.error("❌ Evaluation Error:", message);
       if (isCritical) throw new Error(message);
       results.push({ error: "System Error" });
+      await onProgress?.({
+        evaluated: results.length,
+        total: turns.length,
+        turnIndex: i,
+      });
     }
   }
 
