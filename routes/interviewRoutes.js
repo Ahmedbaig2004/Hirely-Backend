@@ -16,10 +16,11 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // AI LIMITER (Cost Control)
-// Limit: 100 expensive AI calls per 1 hour
+// Limit expensive AI calls per 1 hour
+const aiLimitMax = Number(process.env.AI_RATE_LIMIT_MAX ?? 1000);
 const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 100,
+  max: aiLimitMax,
   message: "AI Processing Limit Reached. Please wait.",
 });
 
