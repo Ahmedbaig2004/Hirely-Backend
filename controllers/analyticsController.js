@@ -22,6 +22,13 @@ function monthBucket(date) {
   return new Date(date).toISOString().slice(0, 7);
 }
 
+function normalizeDifficulty(difficulty) {
+  const value = String(difficulty || "Medium").trim().toLowerCase();
+  if (value === "easy") return "Easy";
+  if (value === "hard") return "Hard";
+  return "Medium";
+}
+
 // GET /api/analytics
 export const getAnalytics = async (req, res) => {
   try {
@@ -193,10 +200,12 @@ export const getAnalytics = async (req, res) => {
     const topicMap = {};
     for (const turn of allTurns) {
       const topic = turn.topic || "General";
-      const difficulty = turn.difficulty || "Medium";
+      const difficulty = normalizeDifficulty(turn.difficulty);
       if (!topicMap[topic]) topicMap[topic] = { Easy: [], Medium: [], Hard: [], count: 0 };
       topicMap[topic].count += 1;
-      topicMap[topic][difficulty].push(turn.score);
+      if (turn.score != null && !Number.isNaN(turn.score)) {
+        topicMap[topic][difficulty].push(turn.score);
+      }
     }
 
     const topicHeatmap = Object.entries(topicMap)
