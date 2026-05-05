@@ -19,16 +19,21 @@ app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST", "DELETE"],
-  })
+  }),
 );
 
 app.use(express.json());
 
 // B. GENERAL LIMITER (Anti-Spam / DDoS Protection)
-// Limit: 100 requests per 15 minutes per IP
+// Local dev does a lot of hot reload/fetch retries, so keep production strict
+// while avoiding accidental dashboard lockouts during development.
+const isProduction = process.env.NODE_ENV === "production";
+const rateLimitMax = Number(
+  process.env.RATE_LIMIT_MAX ?? (isProduction ? 1000 : 1000),
+);
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: rateLimitMax,
   message: "Too many requests from this IP, please try again after 15 minutes",
   standardHeaders: true,
   legacyHeaders: false,

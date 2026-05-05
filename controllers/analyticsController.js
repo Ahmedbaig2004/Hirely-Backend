@@ -29,6 +29,35 @@ function normalizeDifficulty(difficulty) {
   return "Medium";
 }
 
+function toPct(value) {
+  if (value == null || Number.isNaN(value)) return null;
+  return value <= 1 ? value * 100 : value;
+}
+
+function collectTopVideoSignals(videoAnalyses) {
+  const byName = {};
+  for (const video of videoAnalyses) {
+    const groups = video.rawFeatures;
+    if (!groups || typeof groups !== "object") continue;
+
+    for (const group of Object.values(groups)) {
+      if (!group || typeof group !== "object") continue;
+      const tips = Array.isArray(group.tips) ? group.tips : [];
+      for (const tip of tips) {
+        const name = tip.friendly || tip.feature;
+        const impact = typeof tip.shap === "number" ? tip.shap : 0;
+        if (!name || impact === 0) continue;
+        byName[name] = (byName[name] || 0) + impact;
+      }
+    }
+  }
+
+  return Object.entries(byName)
+    .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+    .slice(0, 5)
+    .map(([name, impact]) => ({ name, impact: Math.round(impact * 10) / 10 }));
+}
+
 // GET /api/analytics
 export const getAnalytics = async (req, res) => {
   try {
@@ -83,6 +112,15 @@ export const getAnalytics = async (req, res) => {
                 speakingQuality: true,
               },
             },
+            videoAnalysis: {
+              select: {
+                confidenceLevel: true,
+                confidenceLabelText: true,
+                rawScore: true,
+                rawFeatures: true,
+                status: true,
+              },
+            },
           },
         },
       },
@@ -99,9 +137,10 @@ export const getAnalytics = async (req, res) => {
         },
         trend: [],
         byType: [],
-        modality: { technical: null, delivery: null, voice: null, contentQuality: null, combined: null },
+        modality: { technical: null, delivery: null, voice: null, video: null, contentQuality: null, combined: null },
         topicHeatmap: [],
         delivery: { avgFillers: null, avgHedging: null, avgRestarts: null, avgRelevance: null, avgSpecificity: null },
+        video: { avgConfidence: null, avgRawScore: null, analyzedTurns: 0, labelBreakdown: [], topSignals: [] },
         decisionBreakdown: [],
       });
     }
@@ -169,6 +208,9 @@ export const getAnalytics = async (req, res) => {
         avgVoice: avg(groupTurns.map((t) => t.voiceAnalysis?.confidenceLevel).filter((s) => s != null)) !== null
           ? Math.round(avg(groupTurns.map((t) => t.voiceAnalysis?.confidenceLevel).filter((s) => s != null)) * 100)
           : null,
+        avgVideo: avg(groupTurns.map((t) => t.videoAnalysis?.confidenceLevel).filter((s) => s != null)) !== null
+          ? Math.round(avg(groupTurns.map((t) => t.videoAnalysis?.confidenceLevel).filter((s) => s != null)) * 100)
+          : null,
       };
     }).filter(Boolean);
 
@@ -185,6 +227,9 @@ export const getAnalytics = async (req, res) => {
         : null,
       voice: avg(fb.map((s) => s.voice).filter((v) => v != null)) !== null
         ? Math.round(avg(fb.map((s) => s.voice).filter((v) => v != null)))
+        : null,
+      video: avg(fb.map((s) => s.video).filter((v) => v != null)) !== null
+        ? Math.round(avg(fb.map((s) => s.video).filter((v) => v != null)))
         : null,
       contentQuality: avg(fb.map((s) => s.contentQuality).filter((v) => v != null)) !== null
         ? Math.round(avg(fb.map((s) => s.contentQuality).filter((v) => v != null)))
@@ -242,6 +287,38 @@ export const getAnalytics = async (req, res) => {
     };
 
     // -----------------------------------------------------------------------
+    // Video Presence Aggregates
+    // -----------------------------------------------------------------------
+    const turnsWithVideo = allTurns.filter(
+      (t) =>
+        t.videoAnalysis &&
+        (t.videoAnalysis.status === "completed" ||
+          t.videoAnalysis.confidenceLevel != null)
+    );
+    const videoAnalyses = turnsWithVideo.map((t) => t.videoAnalysis);
+    const videoLabelCounts = {};
+    for (const video of videoAnalyses) {
+      const label = video.confidenceLabelText || "Needs work";
+      videoLabelCounts[label] = (videoLabelCounts[label] || 0) + 1;
+    }
+    const video = {
+      avgConfidence:
+        avg(videoAnalyses.map((v) => toPct(v.confidenceLevel)).filter((v) => v != null)) !== null
+          ? Math.round(avg(videoAnalyses.map((v) => toPct(v.confidenceLevel)).filter((v) => v != null)))
+          : null,
+      avgRawScore:
+        avg(videoAnalyses.map((v) => toPct(v.rawScore)).filter((v) => v != null)) !== null
+          ? Math.round(avg(videoAnalyses.map((v) => toPct(v.rawScore)).filter((v) => v != null)))
+          : null,
+      analyzedTurns: videoAnalyses.length,
+      labelBreakdown: Object.entries(videoLabelCounts).map(([label, count]) => ({
+        label,
+        count,
+      })),
+      topSignals: collectTopVideoSignals(videoAnalyses),
+    };
+
+    // -----------------------------------------------------------------------
     // Decision Breakdown
     // -----------------------------------------------------------------------
     const DECISIONS = ["Strong Hire", "Hire", "Weak Hire", "No Hire"];
@@ -255,7 +332,7 @@ export const getAnalytics = async (req, res) => {
       count: decisionCounts[decision],
     }));
 
-    return res.json({ kpis, trend, byType, modality, topicHeatmap, delivery, decisionBreakdown });
+    return res.json({ kpis, trend, byType, modality, topicHeatmap, delivery, video, decisionBreakdown });
   } catch (error) {
     console.error("Analytics Error:", error);
     res.status(500).json({ error: "Failed to fetch analytics" });
