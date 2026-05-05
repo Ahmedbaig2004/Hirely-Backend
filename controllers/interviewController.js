@@ -28,6 +28,26 @@ const redisClient = new Redis({
 
 const JOB_SPECIFIC_MAX_QUESTIONS = 10;
 
+function formatQuestionForDelivery(questionObj) {
+  if (!questionObj) return "";
+  const bridge =
+    typeof questionObj.bridge === "string" ? questionObj.bridge.trim() : "";
+  const question =
+    typeof questionObj.question === "string" ? questionObj.question.trim() : "";
+  if (bridge && question) return `${bridge} ${question}`;
+  return question || bridge;
+}
+
+function buildAdaptiveAnswerText(answerText, evaluationText, detectedLanguage) {
+  const preferred =
+    detectedLanguage === "ur" && evaluationText ? evaluationText : answerText;
+
+  return String(preferred || "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(uh|um|hmm|mmm)\b/gi, " ")
+    .trim();
+}
+
 /**
  * Initialize interview session
  */
@@ -105,6 +125,10 @@ export const initInterview = async (req, res) => {
       resumeBuffer: req.file?.buffer ?? null,
       jobDescription: jobDescription || null,
       config,
+      interviewMode:
+        ["chat", "audio", "video"].includes(req.body.interviewMode)
+          ? req.body.interviewMode
+          : "audio",
     });
 
     const sessionId = uuidv4();
@@ -223,6 +247,12 @@ export const submitAnswer = async (req, res) => {
       evaluationText = translatedText;
     }
 
+    const adaptiveAnswerText = buildAdaptiveAnswerText(
+      answerText,
+      evaluationText,
+      detectedLanguage,
+    );
+
     // 3. Save Turn to State (Redis) - score/feedback null until finalization.
     const updatedSession = await stateManager.saveTurn(
       sessionId,
@@ -310,21 +340,26 @@ export const submitAnswer = async (req, res) => {
         ? queue[0]
         : await getNextQuestion(updatedSession, {
             question: askedQuestion,
-            answer: answerText,
+            answer: adaptiveAnswerText,
           });
     // Pass updatedSession so updateCurrentQuestion skips the redundant Redis GET
     await stateManager.updateCurrentQuestion(sessionId, nextQ, updatedSession);
 
     const interviewerVoice = session.interviewerVoice || "female";
+    const deliveredNextQuestion = formatQuestionForDelivery(nextQ);
+
     let audioBase64 = null;
     let audioMime = null;
     if (
       process.env.ENABLE_TTS === "true" &&
       sessionInterviewMode !== "chat" &&
-      nextQ?.question
+      deliveredNextQuestion
     ) {
       try {
-        const result = await generateAudio(nextQ.question, interviewerVoice);
+        const result = await generateAudio(
+          deliveredNextQuestion,
+          interviewerVoice,
+        );
         if (result) {
           audioBase64 = result.buffer.toString("base64");
           audioMime = result.mime;

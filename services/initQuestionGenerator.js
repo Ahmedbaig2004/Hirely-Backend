@@ -18,10 +18,16 @@ export async function generateInitialQuestions({
   resumeBuffer,
   jobDescription,
   config,
+  interviewMode,
 }) {
   if (interviewType === "JOB_SPECIFIC") {
-    // Existing path — full resume parsing + gap analysis + 4 questions
-    const analysis = await generateInterviewContext(resumeBuffer, jobDescription);
+    // Generate only the 2 opening questions we actually use before adaptive mode.
+    const analysis = await generateInterviewContext(
+      resumeBuffer,
+      jobDescription,
+      2,
+      interviewMode,
+    );
     return {
       candidateSummary: analysis.candidateSummary,
       gapAnalysis: analysis.gapAnalysis,
@@ -32,14 +38,23 @@ export async function generateInitialQuestions({
   if (interviewType === "TECHNICAL") {
     const { stack, difficulty, questionCount } = config;
     const seedCount = Math.min(questionCount, 2);
-    const questions = await generateTechnicalQuestions(stack, difficulty, seedCount);
+    const questions = await generateTechnicalQuestions(
+      stack,
+      difficulty,
+      seedCount,
+      interviewMode,
+    );
     return { candidateSummary: null, gapAnalysis: null, questions };
   }
 
   if (interviewType === "BEHAVIORAL") {
     const { difficulty, questionCount } = config;
     const seedCount = Math.min(questionCount, 2);
-    const questions = await generateBehavioralQuestions(difficulty, seedCount);
+    const questions = await generateBehavioralQuestions(
+      difficulty,
+      seedCount,
+      interviewMode,
+    );
     return { candidateSummary: null, gapAnalysis: null, questions };
   }
 

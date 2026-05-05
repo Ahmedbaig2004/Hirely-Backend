@@ -9,6 +9,11 @@ const W_AUDIO = 0.5;
 const W_VIDEO = 0.5;
 
 const NextQuestionSchema = z.object({
+  bridge: z
+    .string()
+    .describe(
+      "A short truthful transition that reacts to the candidate's last answer, or an empty string when no truthful transition is needed",
+    ),
   question: z.string(),
   topic: z.string(),
   difficulty: z.string(),
@@ -25,6 +30,223 @@ function withTimeout(promise, timeoutMs, label) {
     }, timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function normalizeWhitespace(text = "") {
+  return String(text).replace(/\s+/g, " ").trim();
+}
+
+function dedupeAdjacentClauses(text = "") {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) return "";
+
+  const parts = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+
+  const deduped = [];
+  for (const part of parts) {
+    if (deduped.length === 0) {
+      deduped.push(part);
+      continue;
+    }
+    const prev = deduped[deduped.length - 1].toLowerCase();
+    if (prev === part.toLowerCase()) continue;
+    deduped.push(part);
+  }
+
+  return deduped.join(" ");
+}
+
+function cleanTranscriptForAdaptiveUse(text = "") {
+  let cleaned = dedupeAdjacentClauses(text);
+
+  cleaned = cleaned
+    .replace(/\b(uh|um|hmm|mmm|you know|like)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return normalizeWhitespace(text);
+  return cleaned;
+}
+
+function classifyAnswerTone(answer = "") {
+  const normalized = normalizeWhitespace(answer).toLowerCase();
+  if (!normalized) return "empty";
+
+  const negativePatterns = [
+    /^(no|nope|nah)\b/,
+    /^(i do not|i don't|did not|didn't)\b/,
+    /\bi (do not|don't|did not|didn't|can't|cannot|couldn't)\b/,
+    /\b(i do not know|i don't know|not sure|unsure|no idea)\b/,
+    /\bnever used\b/,
+    /\bhaven't worked with\b/,
+    /\bnot really\b/,
+  ];
+
+  if (negativePatterns.some((pattern) => pattern.test(normalized))) {
+    return "negative";
+  }
+
+  return "neutral_or_positive";
+}
+
+function isOverlyPositiveBridge(bridge = "") {
+  const normalized = normalizeWhitespace(bridge).toLowerCase();
+  if (!normalized) return false;
+
+  return [
+    /\bgood\b/,
+    /\bgreat\b/,
+    /\bexcellent\b/,
+    /\bstrong\b/,
+    /\bwell done\b/,
+    /\bnice\b/,
+    /\bthat makes sense\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function isGenericBridge(bridge = "") {
+  const normalized = normalizeWhitespace(bridge)
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "");
+  if (!normalized) return false;
+
+  return [
+    /^thanks?( for (that|sharing|sharing that|your answer|the answer))?$/,
+    /^thank you( for (that|sharing|sharing that|your answer|the answer))?$/,
+    /^got it$/,
+    /^okay$/,
+    /^ok$/,
+    /^i see$/,
+    /^understood$/,
+    /^interesting$/,
+    /^that makes sense$/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function buildFallbackBridge(currentTurn, payload, lastTurn) {
+  const answer = normalizeWhitespace(currentTurn?.answer || "");
+  const currentTopic = normalizeWhitespace(payload?.topic || "");
+  const previousTopic = normalizeWhitespace(lastTurn?.topic || "");
+  const answerTone = classifyAnswerTone(answer);
+
+  if (!answer) return "";
+  if (answerTone === "negative") {
+    if (currentTopic && previousTopic && currentTopic !== previousTopic) {
+      return "Okay, let's try a different angle.";
+    }
+    return "Okay.";
+  }
+  if (currentTopic && previousTopic && currentTopic === previousTopic) {
+    return "Got it, let's build on that.";
+  }
+  if (currentTopic && previousTopic && currentTopic !== previousTopic) {
+    return "Okay, let's shift slightly.";
+  }
+  return "Got it.";
+}
+
+function stripBridgePrefix(question = "", bridge = "") {
+  const normalizedQuestion = normalizeWhitespace(question);
+  const normalizedBridge = normalizeWhitespace(bridge);
+  if (!normalizedQuestion || !normalizedBridge) return normalizedQuestion;
+
+  const lowerQuestion = normalizedQuestion.toLowerCase();
+  const lowerBridge = normalizedBridge.toLowerCase();
+
+  if (lowerQuestion === lowerBridge) return "";
+  if (lowerQuestion.startsWith(`${lowerBridge} `)) {
+    return normalizedQuestion.slice(normalizedBridge.length).trim();
+  }
+
+  const bridgeLead = lowerBridge.replace(/[.!?]+$/g, "");
+  const questionLead = lowerQuestion.replace(/[.!?]+$/g, "");
+  if (questionLead.startsWith(bridgeLead) && bridgeLead.length > 12) {
+    return normalizedQuestion.slice(normalizedBridge.length).trim();
+  }
+
+  return normalizedQuestion;
+}
+
+function stripGenericQuestionPrefix(question = "") {
+  return normalizeWhitespace(question)
+    .replace(
+      /^(thanks?(?: for (?:that|sharing|sharing that|your answer|the answer))?|thank you(?: for (?:that|sharing|sharing that|your answer|the answer))?|got it|okay|ok|i see|understood|interesting|that makes sense)[.!?,]?\s+/i,
+      "",
+    )
+    .trim();
+}
+
+function sanitizeNextQuestionPayload(
+  payload,
+  currentTurn = null,
+  lastTurn = null,
+) {
+  if (!payload || typeof payload !== "object") return payload;
+
+  let bridge = dedupeAdjacentClauses(payload.bridge || "");
+  let question = stripBridgePrefix(
+    dedupeAdjacentClauses(payload.question || ""),
+    bridge,
+  );
+  question = stripGenericQuestionPrefix(question);
+  const answerTone = classifyAnswerTone(currentTurn?.answer || "");
+
+  if (
+    answerTone === "negative" &&
+    (isOverlyPositiveBridge(bridge) || isGenericBridge(bridge))
+  ) {
+    bridge = buildFallbackBridge(currentTurn, payload, lastTurn);
+  }
+
+  if (answerTone !== "negative" && isGenericBridge(bridge)) {
+    bridge = "";
+  }
+
+  if (!bridge && answerTone === "negative") {
+    bridge = buildFallbackBridge(currentTurn, payload, lastTurn);
+  }
+
+  question = question
+    .replace(
+      /\b(can you explain what an? .+? is and (why|how) .+? used\??)/i,
+      (match) => match,
+    )
+    .trim();
+
+  if (
+    /\bbasic arithmetic operators\b/i.test(question) ||
+    /\bsimple expression\b/i.test(question) ||
+    /\bwhat is an if statement\b/i.test(question) ||
+    /\bwhat are .* operators\b/i.test(question)
+  ) {
+    question = question
+      .replace(
+        /Can you describe some of the basic arithmetic operators in Python, such as addition, subtraction, multiplication, and division\?/i,
+        "Can you walk me through how Python arithmetic operators show up in real application logic or data processing work?",
+      )
+      .replace(
+        /How would you use them in a simple expression\?/i,
+        "Can you describe a simple real-world situation where you would use them and what you would be checking or calculating?",
+      )
+      .replace(
+        /What is an if statement and how would you use it to make a decision in your code\?/i,
+        "How do conditional branches help you make decisions in a Python program, and where have you used that kind of logic in practice?",
+      )
+      .replace(
+        /Provide a very simple example\.?/i,
+        "You can explain it in words rather than writing code.",
+      )
+      .trim();
+  }
+
+  return {
+    ...payload,
+    bridge,
+    question,
+  };
 }
 
 const FinalReportSchema = z.object({
@@ -145,11 +367,12 @@ export async function getNextQuestion(session, currentTurn = null) {
   const interviewType = session.interviewType || "JOB_SPECIFIC";
   const config = session.config || {};
   const selectedDifficulty = config.difficulty || "Medium";
+  const interviewMode = session.interviewMode || "audio";
 
   const currentTurnSection = currentTurn
     ? `CURRENT QUESTION (just answered — transcript below, not yet scored):
 Q: ${currentTurn.question}
-A: ${currentTurn.answer}
+A: ${cleanTranscriptForAdaptiveUse(currentTurn.answer)}
 Difficulty so far: ${lastDifficulty}
 
 Use this transcript to choose the next question. For fixed-difficulty modes, adapt only the content, not the difficulty.`
@@ -159,6 +382,7 @@ Use this transcript to choose the next question. For fixed-difficulty modes, ada
 
   let contextSection;
   let taskDescription;
+  let followUpStyle;
 
   if (interviewType === "TECHNICAL") {
     const topicsCovered = session.history
@@ -168,9 +392,18 @@ Use this transcript to choose the next question. For fixed-difficulty modes, ada
     contextSection = `INTERVIEW TYPE: Technical — ${config.stack || "General"} (${config.difficulty || "Medium"} level)
 Topics already covered: ${topicsCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
-- Stay at or near "${config.difficulty || "Medium"}" difficulty, adjusting by ONE level based on answer quality.
-- Cover a topic NOT already covered above.
-- Do NOT ask about the same concept twice.`;
+- Prefer a real follow-up if the candidate said something worth probing deeper, clarifying, or challenging.
+- Move to a new topic only when the previous area feels complete, weakly answered, or not worth drilling into further.
+- Assume the candidate already knows the most basic syntax of ${config.stack || "the stack"}.
+- Do NOT ask tutorial-style questions about primitive syntax, arithmetic operators, basic keywords, or classroom definitions.
+- Do not ask the exact same question twice.`;
+    followUpStyle = `TECHNICAL FOLLOW-UP STYLE:
+- If the candidate named a tool, concept, architecture decision, tradeoff, or project detail, prefer drilling into that naturally.
+- Good human follow-ups often ask "why", "how", "what happens if", or "can you walk me through".
+- A new topic is fine, but only after a natural transition.
+- This is a ${interviewMode} interview, so ask for explanation, reasoning, tradeoffs, debugging thought process, architecture, or a verbal walkthrough.
+- Do NOT ask the candidate to write code, provide a snippet, implement a function, or give a runnable example.
+- If you want an example, ask for a simple verbal scenario or pseudocode-level explanation in words.`;
   } else if (interviewType === "BEHAVIORAL") {
     const competenciesCovered = session.history
       .map((h) => h.topic)
@@ -179,12 +412,23 @@ Topics already covered: ${topicsCovered || "(none yet)"}`;
     contextSection = `INTERVIEW TYPE: Behavioral — STAR method (${config.difficulty || "Medium"} level)
 Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
-- Stay at or near "${config.difficulty || "Medium"}" difficulty, adjusting by ONE level based on answer quality.
-- Cover a competency NOT already covered above (e.g. leadership, conflict, failure, prioritization, teamwork).
-- Do NOT repeat competencies.`;
+- Prefer a real follow-up if the candidate left out a key STAR element, gave a vague example, or mentioned something worth unpacking.
+- Move to a new competency only when the previous story feels sufficiently explored.
+- Do not ask the exact same question twice.`;
+    followUpStyle = `BEHAVIORAL FOLLOW-UP STYLE:
+- If the candidate gave an incomplete STAR answer, ask for the missing piece naturally.
+- Good human follow-ups probe ownership, tradeoffs, conflict handling, results, and lessons learned.
+- A new competency is fine, but only after a natural transition.`;
   } else {
     contextSection = `JOB CONTEXT: ${(session.jobDescription || "").substring(0, 500)}...`;
-    taskDescription = `Generate the NEXT follow-up question. If the candidate showed a gap or said they don't know something, probe that area at an appropriate difficulty. Follow the difficulty rules above strictly.`;
+    taskDescription = `Generate the NEXT follow-up question.
+- Prefer probing the candidate's actual last answer, especially if they mentioned a project, skill, gap, uncertainty, or partial answer worth exploring.
+- Move to a new JD area only when that feels more natural than drilling deeper.
+- Follow the difficulty rules above strictly.`;
+    followUpStyle = `JOB-SPECIFIC FOLLOW-UP STYLE:
+- If the candidate hinted at a relevant experience, ask them to expand on it naturally.
+- If they exposed a gap, uncertainty, or weak explanation, probe it respectfully.
+- If you switch topics, make the transition feel intentional, not abrupt.`;
   }
 
   if (interviewType === "TECHNICAL") {
@@ -196,9 +440,11 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
 Topics already covered: ${topicsCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT technical question about ${config.stack || "the stack"}.
 - Keep the difficulty exactly "${selectedDifficulty}". Do not increase or decrease it.
-- Adapt by choosing the most useful next topic or follow-up based on the candidate's transcript.
-- Cover a topic NOT already covered above.
-- Do NOT ask about the same concept twice.
+- Adapt by choosing the most useful follow-up or next topic based on the candidate's transcript.
+- Prefer probing the previous answer before switching topics, unless the previous area is exhausted or too weak to continue productively.
+- Assume the candidate already knows the most basic syntax of ${config.stack || "the stack"}.
+- Do NOT ask tutorial-style questions about primitive syntax, arithmetic operators, basic keywords, or classroom definitions.
+- Do not ask the exact same question twice.
 - Set the "difficulty" field to exactly "${selectedDifficulty}".`;
   } else if (interviewType === "BEHAVIORAL") {
     const competenciesCovered = session.history
@@ -210,8 +456,8 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     taskDescription = `Generate the NEXT behavioral question expecting a STAR-method answer.
 - Keep the difficulty exactly "${selectedDifficulty}". Do not increase or decrease it.
 - Adapt by probing the most useful competency, weakness, missing STAR element, or follow-up area from the candidate's transcript.
-- Cover a competency NOT already covered above (e.g. leadership, conflict, failure, prioritization, teamwork).
-- Do NOT repeat competencies.
+- Prefer drilling deeper into the candidate's current story before jumping to a fresh competency.
+- Do not ask the exact same question twice.
 - Set the "difficulty" field to exactly "${selectedDifficulty}".`;
   }
 
@@ -225,7 +471,7 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
     - Difficulty may increase, decrease, or stay the same based on the candidate's answer quality and the JD requirements.`;
 
   const prompt = `
-    You are a Dynamic Interviewer.
+    You are a warm, sharp, highly human interviewer.
     ${contextSection}
 
     INTERVIEW HISTORY (previous turns, scored):
@@ -240,23 +486,59 @@ Competencies already covered: ${competenciesCovered || "(none yet)"}`;
 
     ${modeDifficultyRules}
 
+    CONVERSATIONAL STYLE RULES:
+    - Sound like a real interviewer, not a question generator.
+    - Use a bridge only when it can truthfully react to something specific in the candidate's last answer.
+    - Keep any bridge short: one brief sentence or phrase, not a long summary.
+    - Put that bridge in the "bridge" field.
+    - If there is no specific, truthful acknowledgment to make, set "bridge" to an empty string and ask the next question directly.
+    - Do not flatter excessively, do not sound scripted, and do not mention internal scoring logic.
+    - Make the bridge truthful to the answer quality: if the candidate says "no", "I don't know", or gives a weak/negative answer, do not praise it with words like "good", "great", or "strong".
+    - Avoid generic filler bridges like "Thanks for that", "Thanks for sharing", "Got it", "Okay", "Interesting", or "That makes sense" unless they are directly followed by a specific reference to the answer.
+    - For weak or negative answers, use a short neutral bridge such as "Okay." only when a bridge is needed.
+    - Never say "final question".
+    - Do not over-quote unusual transcript fragments unless they are clearly central and reliable.
+    - If the transcript contains a noisy or oddly specific phrase, prefer a general acknowledgment over repeating it literally.
+    - Respect the interview mode: the candidate is answering in ${interviewMode}, not in a code editor.
+    - For technical interviews, do not ask for runnable code, pasted code snippets, or coding-exercise style implementations.
+    - For technical interviews, avoid textbook phrasing like "what is an if statement", "list basic operators", or "write a simple expression".
+
+    ${followUpStyle || ""}
+
     TASK: ${taskDescription}
+
+    OUTPUT RULES:
+    - Put a brief truthful acknowledgment / transition in the "bridge" field, or use an empty string if the candidate's answer gives you nothing specific to acknowledge.
+    - Put only the actual next interview question in the "question" field.
+    - The "bridge" should reference or react to the candidate's last answer when possible.
+    - If the candidate's last answer gives you very little to reference, leave "bridge" empty instead of using generic thanks.
+    - The "reason" field is internal and should explain why this is the best next move.
   `;
 
   try {
-    return await withTimeout(
-      generateStructured(prompt, NextQuestionSchema),
+    const result = await withTimeout(
+      generateStructured(prompt, NextQuestionSchema, {
+        model: "gemini-2.5-flash-lite",
+        temperature: 0.3,
+        maxOutputTokens: 900,
+        thinkingConfig: { thinkingBudget: 0 },
+      }),
       PRIMARY_NEXT_QUESTION_TIMEOUT_MS,
-      "Adaptive question generation with gemini-2.5-flash",
+      "Adaptive question generation with gemini-2.5-flash-lite",
     );
+    return sanitizeNextQuestionPayload(result, currentTurn, lastTurn);
   } catch (error) {
     console.warn(
-      "Adaptive question generation failed on gemini-2.5-flash, retrying with gemini-2.5-flash-lite:",
+      "Adaptive question generation failed on gemini-2.5-flash-lite, retrying with gemini-2.5-flash:",
       error.message,
     );
-    return await generateStructured(prompt, NextQuestionSchema, {
-      model: "gemini-2.5-flash-lite",
+    const fallback = await generateStructured(prompt, NextQuestionSchema, {
+      model: "gemini-2.5-flash",
+      temperature: 0.3,
+      maxOutputTokens: 300,
+      thinkingConfig: { thinkingBudget: 0 },
     });
+    return sanitizeNextQuestionPayload(fallback, currentTurn, lastTurn);
   }
 }
 
