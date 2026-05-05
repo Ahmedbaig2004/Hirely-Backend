@@ -34,63 +34,61 @@ CALIBRATION_PATH = str(_HERE / "models" / "audio_calibration_data_v1.json")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # AUDIO FEEDBACK SYSTEM
-# Mirrors the video service's group-based SHAP + golden zone feedback exactly.
+# Group-based SHAP + golden zone feedback with human-friendly names and tips.
 # ════════════════════════════════════════════════════════════════════════════════
 
-# ── Friendly names shown to the user ─────────────────────────────────────────
 FRIENDLY_NAMES = {
     # Loudness & Energy
-    "loudness_sma3_percentile20.0":      "Minimum Loudness",
-    "loudness_sma3_percentile50.0":      "Median Loudness",
-    "loudness_sma3_percentile80.0":      "Peak Loudness",
-    "loudness_sma3_stddevNorm":          "Loudness Variation",
-    "loudness_sma3_pctlrange0-2":        "Loudness Dynamic Range",
-    "loudness_sma3_meanRisingSlope":     "Loudness Rising Intensity",
-    "loudness_sma3_stddevRisingSlope":   "Loudness Rise Consistency",
-    "loudness_sma3_meanFallingSlope":    "Loudness Falling Speed",
-    "loudness_sma3_stddevFallingSlope":  "Loudness Fall Consistency",
-    "loudnessPeaksPerSec":               "Loudness Peaks per Second",
-    "loudness_dynamics_power":           "Loudness Dynamics Power",
-    "vocal_projection":                  "Vocal Projection",
+    "loudness_sma3_percentile20.0":      "Quietest Moments",
+    "loudness_sma3_percentile50.0":      "Typical Speaking Volume",
+    "loudness_sma3_percentile80.0":      "Peak Speaking Volume",
+    "loudness_sma3_stddevNorm":          "Volume Variety",
+    "loudness_sma3_pctlrange0-2":        "Quiet-to-Loud Range",
+    "loudness_sma3_meanRisingSlope":     "Sentence Energy Build-up",
+    "loudness_sma3_stddevRisingSlope":   "Energy Build-up Consistency",
+    "loudness_sma3_meanFallingSlope":    "Sentence Endings",
+    "loudness_sma3_stddevFallingSlope":  "Sentence Ending Consistency",
+    "loudnessPeaksPerSec":               "Emphasis & Stress",
+    "loudness_dynamics_power":           "Overall Volume Dynamics",
+    "vocal_projection":                  "How Well Your Voice Carries",
     # Pitch & Expressiveness
-    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": "Pitch Variation",
-    "spectralFlux_sma3_amean":           "Spectral Flux",
-    "spectralFlux_sma3_stddevNorm":      "Spectral Flux Variation",
-    "alphaRatioV_sma3nz_amean":          "High-Freq Energy Ratio",
-    "alphaRatioV_sma3nz_stddevNorm":     "High-Freq Energy Variation",
-    "hammarbergIndexV_sma3nz_stddevNorm":"Vocal Brightness Variation",
-    "hammarbergIndexUV_sma3nz_amean":    "Unvoiced Brightness",
-    "brightness_contrast":               "Spectral Brightness Contrast",
-    "slopeV0-500_sma3nz_stddevNorm":     "Low-Freq Slope Variation",
-    "slopeUV0-500_sma3nz_amean":         "Unvoiced Low-Freq Slope",
-    "slopeUV500-1500_sma3nz_amean":      "Unvoiced Mid-Freq Slope",
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": "Pitch Range",
+    "spectralFlux_sma3_amean":           "Tonal Variety",
+    "spectralFlux_sma3_stddevNorm":      "Tonal Consistency",
+    "alphaRatioV_sma3nz_amean":          "Voice Brightness",
+    "alphaRatioV_sma3nz_stddevNorm":     "Voice Brightness Consistency",
+    "hammarbergIndexV_sma3nz_stddevNorm":"Vocal Texture Consistency",
+    "hammarbergIndexUV_sma3nz_amean":    "Pauses Between Words",
+    "brightness_contrast":               "Voice Sharpness & Clarity",
+    "slopeV0-500_sma3nz_stddevNorm":     "Bass Tone Variation",
+    "slopeUV0-500_sma3nz_amean":         "Breath Sound Quality",
+    "slopeUV500-1500_sma3nz_amean":      "Pause Sound Quality",
     # Voice Quality
-    "HNRdBACF_sma3nz_amean":            "Voice Clarity (HNR)",
-    "HNRdBACF_sma3nz_stddevNorm":       "Voice Clarity Consistency",
-    "shimmerLocaldB_sma3nz_amean":       "Voice Shimmer",
-    "shimmerLocaldB_sma3nz_stddevNorm":  "Shimmer Consistency",
-    "vocal_instability":                 "Vocal Instability",
-    "F2amplitudeLogRelF0_sma3nz_amean":      "F2 Amplitude",
-    "F2amplitudeLogRelF0_sma3nz_stddevNorm": "F2 Amplitude Variation",
-    "F2bandwidth_sma3nz_stddevNorm":          "F2 Bandwidth Variation",
-    "F2frequency_sma3nz_stddevNorm":          "F2 Frequency Variation",
-    "F3amplitudeLogRelF0_sma3nz_amean":      "F3 Amplitude",
-    "F3amplitudeLogRelF0_sma3nz_stddevNorm": "F3 Amplitude Variation",
-    "F3bandwidth_sma3nz_stddevNorm":          "F3 Bandwidth Variation",
-    "F3frequency_sma3nz_stddevNorm":          "F3 Frequency Variation",
-    "logRelF0-H1-H2_sma3nz_stddevNorm":      "Harmonic Balance Variation",
-    "mfcc1_sma3_stddevNorm":   "Timbre Variation (MFCC1)",
-    "mfcc1V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC1)",
-    "mfcc2V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC2)",
-    "mfcc3_sma3_stddevNorm":   "Timbre Variation (MFCC3)",
-    "mfcc4V_sma3nz_stddevNorm":"Voiced Timbre Variation (MFCC4)",
-    "mfcc4_sma3_stddevNorm":   "Timbre Variation (MFCC4)",
+    "HNRdBACF_sma3nz_amean":            "Voice Smoothness",
+    "HNRdBACF_sma3nz_stddevNorm":       "Voice Smoothness Consistency",
+    "shimmerLocaldB_sma3nz_amean":       "Voice Steadiness",
+    "shimmerLocaldB_sma3nz_stddevNorm":  "Voice Steadiness Consistency",
+    "vocal_instability":                 "Overall Vocal Stability",
+    "F2amplitudeLogRelF0_sma3nz_amean":      "Vowel Strength",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm": "Vowel Strength Variation",
+    "F2bandwidth_sma3nz_stddevNorm":          "Vowel Resonance Consistency",
+    "F2frequency_sma3nz_stddevNorm":          "Vowel Tone Variation",
+    "F3amplitudeLogRelF0_sma3nz_amean":      "Voice Richness",
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm": "Voice Richness Variation",
+    "F3bandwidth_sma3nz_stddevNorm":          "Vocal Depth Consistency",
+    "F3frequency_sma3nz_stddevNorm":          "Vocal Depth Variation",
+    "logRelF0-H1-H2_sma3nz_stddevNorm":      "Vocal Tone Balance",
+    "mfcc1_sma3_stddevNorm":   "Voice Texture Variety",
+    "mfcc1V_sma3nz_stddevNorm":"Voiced Tone Texture",
+    "mfcc2V_sma3nz_stddevNorm":"Vocal Warmth Variation",
+    "mfcc3_sma3_stddevNorm":   "Tonal Color Variety",
+    "mfcc4V_sma3nz_stddevNorm":"Voice Character Variation",
+    "mfcc4_sma3_stddevNorm":   "Voice Color Consistency",
     # Fluency & Flow
-    "voiced_flow":                       "Voiced Speech Flow",
-    "MeanUnvoicedSegmentLength":         "Average Pause Length",
+    "voiced_flow":                       "Speech Flow",
+    "MeanUnvoicedSegmentLength":         "Pause Length",
 }
 
-# ── Feedback groups — each maps to one UI card ───────────────────────────────
 FEEDBACK_GROUPS = {
     "Loudness & Energy": {
         "members": [
@@ -144,7 +142,6 @@ FEEDBACK_GROUPS = {
     },
 }
 
-# Features too technical/noisy to surface as user-facing coaching tips
 SKIP_COACHING = {
     "F2frequency_sma3nz_stddevNorm",
     "F3frequency_sma3nz_stddevNorm",
@@ -165,166 +162,488 @@ def _get_coaching_tip(feat: str, val: float, zone: dict, direction: str) -> tupl
     Returns (tip_text, status_colour).
     direction: "positive" = SHAP helped score, "negative" = SHAP hurt score.
     status_colour: "green" | "yellow" | "red"
+
+    zone_direction comes directly from the calibration JSON — it is ground truth
+    and is NOT overridden here. The "More is better / Less is better / Middle is best"
+    label on the frontend reads zone_direction from the tip payload and should
+    display whatever the JSON says.
+
+    The nudge logic in positive SHAP tips uses zone_direction to tell the user
+    which way to push — but only in the tip text, not by changing zone_direction.
     """
     friendly = FRIENDLY_NAMES.get(feat, feat)
     zone_min = zone.get("min", -99)
     zone_max = zone.get("max",  99)
-    feat_dir = zone.get("direction", "INCREASING")
+    feat_dir = zone.get("direction", "INCREASING")  # ground truth from JSON — do not override
     in_zone  = zone_min <= val <= zone_max
 
-    # ── Positive SHAP ────────────────────────────────────────────────────────
+    # ── Positive SHAP ─────────────────────────────────────────────────────────
     if direction == "positive":
-        if in_zone or val >= zone_min:
-            return f"Your {friendly} is a key strength — it's well-calibrated.", "green"
-        return f"Your {friendly} is on the right track. Keep improving it.", "yellow"
 
-    # ── Negative SHAP ────────────────────────────────────────────────────────
-
-    # Loudness / Energy
-    if "loudness" in feat.lower() or feat == "vocal_projection":
-        if "stddev" in feat or "Slope" in feat:
+        def _elite_nudge() -> str | None:
+            """
+            When SHAP is positive (feature is helping) but the value is outside
+            the elite zone, tell the user they're doing well but can fine-tune
+            toward the zone. The nudge direction is derived from where val sits
+            relative to the zone — NOT from feat_dir — so it always makes sense
+            regardless of what the JSON direction says.
+            """
+            if in_zone:
+                return None  # already in zone, no nudge needed
             if val < zone_min:
-                return f"Your {friendly} is very flat — vary your volume more to sound dynamic.", "red"
+                # Dot is left of zone — needs to go higher/more
+                return (
+                    "You're doing well here — pushing this a little higher "
+                    "will bring you right into the elite range."
+                )
             if val > zone_max:
-                return f"Your {friendly} is too erratic — work on smoother volume control.", "red"
-        else:
-            if feat_dir == "INCREASING" and val < zone_min:
-                return f"Your {friendly} is too low — speak louder and project more.", "red"
-            if feat_dir == "DECREASING" and val > zone_max:
-                return f"Your {friendly} is too intense — dial back the volume slightly.", "red"
-        return f"Your {friendly} could be better balanced for a confident delivery.", "yellow"
+                # Dot is right of zone — needs to come down/less
+                return (
+                    "You're doing well here — toning this down slightly "
+                    "will land you right in the elite range."
+                )
+            return None
 
-    if feat == "loudness_dynamics_power":
-        if val < zone_min:
-            return "Your loudness dynamics are weak — add more peaks and energy variation.", "red"
-        return "Your loudness dynamics could be more expressive.", "yellow"
+        nudge = _elite_nudge()
 
-    # Pitch / Expressiveness
-    if "F0semitone" in feat:
+        # Feature-specific base praise tips
+        base_tip = None
+        if "loudnessPeaksPerSec" in feat:
+            base_tip = "You naturally stress key words — this makes you sound engaging and easy to follow."
+        elif "vocal_projection" in feat:
+            base_tip = "Your voice carries well — you sound confident and easy to hear."
+        elif "loudness_sma3_stddevNorm" in feat or "loudness_dynamics_power" in feat:
+            base_tip = "You vary your volume nicely — your speech doesn't feel flat or robotic."
+        elif "F0semitoneFrom27.5Hz_sma3nz_stddevNorm" in feat:
+            base_tip = "Your pitch rises and falls naturally — you sound expressive and engaged."
+        elif "spectralFlux_sma3_amean" in feat:
+            base_tip = "Your voice has good tonal variety — listeners stay engaged throughout."
+        elif "HNRdBACF_sma3nz_amean" in feat:
+            base_tip = "Your voice sounds clean and smooth — there's no breathiness or roughness getting in the way."
+        elif "shimmerLocaldB_sma3nz_amean" in feat or "shimmerLocaldB_sma3nz_stddevNorm" in feat:
+            base_tip = "Your voice is steady and controlled — you sound composed and in command."
+        elif "vocal_instability" in feat:
+            base_tip = "Your voice stays rock-steady — no shakiness or wobbling getting in the way."
+        elif "voiced_flow" in feat:
+            base_tip = "Your speech flows smoothly — sentences connect naturally without choppy breaks."
+        elif "MeanUnvoicedSegmentLength" in feat:
+            base_tip = "Your pauses are well-timed — just long enough to land your points without losing momentum."
+        elif "F2amplitudeLogRelF0_sma3nz_amean" in feat or "F3amplitudeLogRelF0_sma3nz_amean" in feat:
+            base_tip = "Your vowels sound full and resonant — this gives your voice depth and presence."
+        elif "mfcc" in feat.lower():
+            base_tip = "Your voice has a pleasant, consistent texture — it's easy and comfortable to listen to."
+        elif "brightness_contrast" in feat or "alphaRatioV_sma3nz_amean" in feat:
+            base_tip = "Your voice has a clear, forward quality — you sound articulate and alert."
+
+        if base_tip is None:
+            base_tip = (
+                f"Your {friendly} is working in your favour — "
+                "it's well-calibrated for a confident delivery."
+            )
+
+        if nudge:
+            return f"{base_tip} {nudge}", "yellow"
+        return base_tip, "green"
+
+    # ── Negative SHAP ─────────────────────────────────────────────────────────
+    # If value is already in zone, don't tell them to change it.
+    if in_zone:
+        return (
+            f"Your {friendly} is actually within the ideal range — "
+            "this might be slightly affecting your score due to other factors. "
+            "Keep doing what you're doing here.", "yellow"
+        )
+
+    # ── LOUDNESS & ENERGY ─────────────────────────────────────────────────────
+    if "loudnessPeaksPerSec" in feat:
+        if val > zone_max:
+            return (
+                "You're emphasising too many words — when everything is stressed, nothing stands out. "
+                "Choose your 2–3 most important words per sentence and stress only those.", "yellow"
+            )
+        return (
+            "You're not stressing words enough — everything lands with equal weight, "
+            "which can sound monotone. Try this: pick the 2–3 most important words in each "
+            "sentence and say them noticeably louder. Practice on one sentence at a time.", "red"
+        )
+
+    if "vocal_projection" in feat:
+        if val > zone_max:
+            return (
+                "Your voice is projecting very strongly — it can come across as too forceful or loud. "
+                "Try relaxing slightly and letting your natural volume carry the conversation.", "yellow"
+            )
+        return (
+            "Your voice isn't carrying as well as it could. "
+            "Sit up straight, take a breath from your belly (not your chest), "
+            "and speak as if the interviewer is sitting across a large table from you. "
+            "More air behind your voice = more presence.", "red"
+        )
+
+    if "loudness_dynamics_power" in feat:
         if val < zone_min:
             return (
-                "Your pitch variation is very low — you sound monotone. "
-                "Try raising and lowering your voice to emphasise key points.", "red"
+                "Your volume stays very flat throughout — there's not much variation between "
+                "your soft and loud moments. This makes it harder to hold attention. "
+                "Try deliberately saying certain phrases louder, and let your voice drop "
+                "naturally at the end of a thought.", "red"
+            )
+        return (
+            "Your volume dynamics could be more expressive. "
+            "Think of your answer as a story — build up to key points and ease off after.", "yellow"
+        )
+
+    if "loudness_sma3_stddevNorm" in feat:
+        if val < zone_min:
+            return (
+                "Your speaking volume is very consistent — which sounds controlled but can feel robotic. "
+                "Let your voice naturally get a little louder when you're making a key point, "
+                "and softer when you're wrapping up a thought.", "yellow"
             )
         if val > zone_max:
-            return "Your pitch varies too wildly — aim for controlled, purposeful intonation.", "yellow"
-        return "Your pitch expressiveness could be slightly improved.", "yellow"
+            return (
+                "Your volume fluctuates quite a lot, which can be distracting. "
+                "Try recording yourself and listening back — focus on keeping a steadier baseline volume.", "yellow"
+            )
 
-    if "spectralFlux" in feat:
+    if "loudness_sma3_percentile20.0" in feat:
+        return (
+            "Even your quietest moments are a bit too soft. "
+            "Listeners shouldn't have to strain to catch words — keep your 'quiet' volume "
+            "at about 70% of your normal speaking volume, not near a whisper.", "red"
+        )
+
+    if "loudness_sma3_percentile50.0" in feat or "loudness_sma3_percentile80.0" in feat:
+        if feat_dir == "INCREASING" and val < zone_min:
+            return (
+                "Your overall speaking volume is on the low side. "
+                "You don't need to shout — but projecting a little more "
+                "makes you sound more confident and easier to follow.", "red"
+            )
+        return (
+            "Your typical speaking volume could be adjusted slightly "
+            "for a more confident, natural delivery.", "yellow"
+        )
+
+    if "loudness_sma3_pctlrange0-2" in feat:
         if val < zone_min:
-            return "Your speech lacks tonal variety — it sounds static. Vary your tone and articulation.", "red"
-        return "Your tonal variety could be more expressive.", "yellow"
+            return (
+                "The gap between your softest and loudest moments is very small. "
+                "Widening this range — speaking softer in relaxed moments and louder "
+                "at important ones — makes you sound much more dynamic and engaging.", "yellow"
+            )
+
+    if "loudness_sma3_meanRisingSlope" in feat:
+        return (
+            "You tend to start sentences softly and don't build much energy as you speak. "
+            "Try starting each sentence with a little more intention — "
+            "the first few words set the tone for the whole thought.", "yellow"
+        )
+
+    if "loudness_sma3_meanFallingSlope" in feat:
+        return (
+            "Your sentence endings trail off — the last few words become quiet and harder to catch. "
+            "This can sound uncertain. Make sure the end of each sentence is as clear as the beginning.", "yellow"
+        )
+
+    if "loudness_sma3_stddevRisingSlope" in feat or "loudness_sma3_stddevFallingSlope" in feat:
+        return (
+            "Your volume build-ups and endings are uneven — sometimes you ramp up naturally, "
+            "other times you don't. Aim for a more consistent rhythm: build into key points, "
+            "land your ending, pause.", "yellow"
+        )
+
+    # ── PITCH & EXPRESSIVENESS ────────────────────────────────────────────────
+    if "F0semitoneFrom27.5Hz_sma3nz_stddevNorm" in feat:
+        if val < zone_min:
+            return (
+                "Your pitch is very flat — you're speaking in almost the same tone throughout. "
+                "This is one of the most common reasons people sound robotic. "
+                "Try this: when making your most important point, let your voice rise slightly. "
+                "When concluding, let it naturally drop. Even small changes make a big difference.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your pitch swings quite a lot — it can sound a bit unsettled or over-animated. "
+                "Aim for purposeful intonation: raise your pitch when introducing something new, "
+                "lower it when making a confident statement.", "yellow"
+            )
+        return "Your pitch range could be slightly more expressive for a natural, engaging delivery.", "yellow"
+
+    if "spectralFlux_sma3_amean" in feat:
+        if val < zone_min:
+            return (
+                "Your voice sounds quite static — the tone doesn't change much as you speak. "
+                "Expressive speakers let their voice shift as they move through ideas. "
+                "Try reading a paragraph aloud and intentionally changing your tone "
+                "between sentences — make it feel like a conversation.", "red"
+            )
+        return (
+            "Your tonal variety could be more expressive. "
+            "Let your voice naturally rise and fall as you explain different ideas.", "yellow"
+        )
+
+    if "spectralFlux_sma3_stddevNorm" in feat:
+        return (
+            "Your tonal consistency could be improved. "
+            "Aim for expressive but smooth shifts in tone — not sudden jumps.", "yellow"
+        )
 
     if "brightness_contrast" in feat:
         if val < zone_min:
             return (
-                "Your voice lacks high-frequency brightness — "
-                "work on clearer articulation and more forward placement.", "yellow"
+                "Your voice lacks crispness and forward clarity. "
+                "This can make you sound a bit muffled or distant. "
+                "Try: open your mouth slightly more as you speak, "
+                "and direct your voice towards your listener rather than letting it drop downward.", "yellow"
             )
         if val > zone_max:
-            return "Your voice is overly bright/harsh. A slightly warmer tone will sound more natural.", "yellow"
-        return "Your spectral brightness balance could be adjusted.", "yellow"
+            return (
+                "Your voice sounds a bit harsh or shrill. "
+                "Try relaxing your jaw and throat slightly as you speak — "
+                "a warmer, more relaxed tone comes across as more natural and confident.", "yellow"
+            )
 
-    if "alphaRatio" in feat:
+    if "alphaRatioV_sma3nz_amean" in feat:
         if val < zone_min:
             return (
-                "Your voice has low high-frequency energy — "
-                "it may sound muffled. Work on clear, forward articulation.", "yellow"
+                "Your voice sounds a bit dull or muffled — it lacks brightness. "
+                "Think about speaking more 'forward' — teeth slightly apart, "
+                "lips more active, like you're speaking towards the front of your mouth.", "yellow"
             )
-        return f"Your {friendly} could be adjusted for a cleaner sound.", "yellow"
+        return "Your voice brightness could be adjusted for a cleaner, crisper sound.", "yellow"
 
-    if "hammarberg" in feat.lower() or "slope" in feat.lower():
-        return f"Your {friendly} could be better calibrated for confident delivery.", "yellow"
+    if "alphaRatioV_sma3nz_stddevNorm" in feat:
+        return (
+            "Your voice brightness is inconsistent — some parts sound crisp, others sound dull. "
+            "Try to maintain the same forward, open articulation throughout your answer.", "yellow"
+        )
 
-    # Voice Quality
-    if "HNR" in feat:
+    if "hammarbergIndexV_sma3nz_stddevNorm" in feat:
+        return (
+            "Your vocal texture shifts unevenly — this can sound a little scattered. "
+            "Focus on keeping your breath support steady throughout each sentence.", "yellow"
+        )
+
+    if "slopeV0-500_sma3nz_stddevNorm" in feat:
+        return (
+            "Your bass tone varies quite a bit, which can make your voice feel unstable. "
+            "Try maintaining a consistent, grounded speaking tone — "
+            "especially at the start and end of sentences.", "yellow"
+        )
+
+    # ── VOICE QUALITY ─────────────────────────────────────────────────────────
+    if "HNRdBACF_sma3nz_amean" in feat:
         if val < zone_min:
             return (
-                "Your voice clarity (HNR) is low — it sounds breathy or rough. "
-                "Support your breath and engage your core when speaking.", "red"
+                "Your voice sounds breathy or slightly rough — "
+                "there's some noise mixed in with the tone. "
+                "This often comes from speaking without enough breath support. "
+                "Before you answer, take a slow breath from your belly. "
+                "Also try humming quietly for 10 seconds to warm up your voice.", "red"
             )
-        return "Your voice clarity could be slightly improved.", "yellow"
+        return "Your voice clarity could be slightly improved — try warming up before your interview.", "yellow"
 
-    if "shimmer" in feat.lower():
-        if "stddev" in feat:
-            if val > zone_max:
-                return "Your shimmer is erratic — focus on steady, supported phonation.", "red"
-            if val < zone_min:
-                return "Your shimmer consistency is too low — your voice amplitude is unpredictably variable.", "yellow"
-        else:
-            if val > zone_max:
-                return "Your voice shimmer is high — it sounds unsteady. Work on breath support and vocal stability.", "red"
-            if val < zone_min:
-                return "Your shimmer is unusually low — your voice may sound overly rigid.", "yellow"
-        return "Your voice steadiness could be improved.", "yellow"
+    if "HNRdBACF_sma3nz_stddevNorm" in feat:
+        return (
+            "Your voice smoothness is inconsistent — clear at times, slightly rough at others. "
+            "Staying hydrated and taking steady breaths between sentences will help.", "yellow"
+        )
+
+    if "shimmerLocaldB_sma3nz_amean" in feat:
+        if val > zone_max:
+            return (
+                "Your voice is wobbling slightly in volume from word to word. "
+                "This can sound shaky or nervous. "
+                "Focus on steady breath support — breathe from your belly and "
+                "keep your core gently engaged as you speak. "
+                "Practice: sustain an 'ahhh' sound for 5 seconds at one volume.", "red"
+            )
+        if val < zone_min:
+            return (
+                "Your voice sounds very rigid — there's almost no natural vibration. "
+                "This can sound a bit flat or robotic. "
+                "Try loosening your jaw and throat — speak as if you're having a natural conversation.", "yellow"
+            )
+        return "Your voice steadiness could be slightly improved.", "yellow"
+
+    if "shimmerLocaldB_sma3nz_stddevNorm" in feat:
+        if val > zone_max:
+            return (
+                "Your voice wobble is very unpredictable — it changes a lot between moments. "
+                "This often means your breath support is inconsistent. "
+                "Take controlled breaths and keep your posture upright while speaking.", "red"
+            )
+        return (
+            "Your voice steadiness could be more consistent. "
+            "Focus on keeping a steady airflow as you move through longer sentences.", "yellow"
+        )
 
     if "vocal_instability" in feat:
         if val > zone_max:
             return (
-                "Your voice is unstable (high jitter × shimmer). "
-                "Focus on steady breath support and relaxed phonation.", "red"
+                "Your voice is showing signs of tension — it's both a little shaky and unsteady. "
+                "This often happens when we're nervous. "
+                "Try a slow exhale before answering, relax your shoulders, "
+                "and let your voice sit lower in your chest. "
+                "Stability comes from breath, not from forcing your voice to sound calm.", "red"
             )
         if val < zone_min:
             return (
-                "Your vocal instability is unusually low — "
-                "ensure it reflects natural speech rather than suppressed movement.", "yellow"
+                "Your voice sounds almost too perfectly still — which can feel mechanical. "
+                "Natural speech has a small amount of variation. "
+                "Try speaking more casually and less 'performed'.", "yellow"
             )
-        return "Your vocal stability could be slightly improved.", "yellow"
+        return "Your overall vocal stability could be slightly improved.", "yellow"
 
-    if "mfcc" in feat.lower():
+    if "F2amplitudeLogRelF0_sma3nz_amean" in feat:
         if val < zone_min:
             return (
-                f"Your {friendly} is too uniform — "
-                "vary your articulation and resonance for a richer vocal quality.", "yellow"
+                "Your vowels sound a bit weak or swallowed. "
+                "Open your mouth slightly more when saying vowels — "
+                "think 'ay', 'ee', 'eye', 'oh', 'oo' with a fuller sound. "
+                "Strong vowels give your voice body and presence.", "yellow"
             )
         if val > zone_max:
-            return f"Your {friendly} is too erratic — aim for consistent, controlled articulation.", "red"
-        return f"Your {friendly} could be refined for better vocal quality.", "yellow"
+            return (
+                "Your vowels are a bit overpowering — it can sound forced. "
+                "Speak naturally without exaggerating vowel sounds.", "yellow"
+            )
 
-    if "F2amplitude" in feat or "F3amplitude" in feat:
+    if "F2amplitudeLogRelF0_sma3nz_stddevNorm" in feat:
+        return (
+            "Your vowel strength is inconsistent — some words sound full, others sound thin. "
+            "Focus on consistent mouth opening throughout your answer.", "yellow"
+        )
+
+    if "F3amplitudeLogRelF0_sma3nz_amean" in feat:
         if val < zone_min:
-            return f"Your {friendly} is weak — work on clearer vowel resonance.", "yellow"
+            return (
+                "Your voice lacks natural depth and richness. "
+                "Try speaking from slightly lower in your throat — "
+                "not forced, just relaxed and resonant. "
+                "Imagine your voice filling a room rather than just reaching across a desk.", "yellow"
+            )
         if val > zone_max:
-            return f"Your {friendly} is too prominent — balance your resonance.", "yellow"
-        return f"Your {friendly} could be better balanced.", "yellow"
+            return (
+                "Your voice is very rich or resonant — which is good — but can occasionally "
+                "sound over-produced. A slightly lighter, more natural tone works better in interviews.", "yellow"
+            )
 
-    # Fluency & Flow
+    if "F3amplitudeLogRelF0_sma3nz_stddevNorm" in feat:
+        return (
+            "Your vocal richness changes quite a bit throughout — sometimes full, sometimes thin. "
+            "Try to maintain consistent resonance, especially through longer answers.", "yellow"
+        )
+
+    if "mfcc1_sma3_stddevNorm" in feat or "mfcc1V_sma3nz_stddevNorm" in feat:
+        if val < zone_min:
+            return (
+                "Your voice texture is quite uniform — it doesn't change much. "
+                "Varying your articulation (how you shape words) adds richness. "
+                "Try over-pronouncing consonants slightly for 30 seconds, "
+                "then speaking normally — you'll notice more texture.", "yellow"
+            )
+        if val > zone_max:
+            return (
+                "Your voice texture changes very abruptly — it can sound disjointed. "
+                "Focus on smooth, consistent articulation from word to word.", "yellow"
+            )
+
+    if "mfcc2V_sma3nz_stddevNorm" in feat:
+        if val > zone_max:
+            return (
+                "The warmth in your voice fluctuates too much — "
+                "some phrases sound warm and natural, others sound cold or strained. "
+                "Keep your throat relaxed and your breathing steady throughout.", "yellow"
+            )
+        if val < zone_min:
+            return (
+                "Your vocal warmth is very flat — your voice may sound a bit cold or robotic. "
+                "Try thinking of something you're genuinely interested in before answering — "
+                "warmth in voice often follows warmth in mindset.", "yellow"
+            )
+
+    if "mfcc3_sma3_stddevNorm" in feat:
+        if val < zone_min:
+            return (
+                "Your voice has very little tonal colour — it sounds one-dimensional. "
+                "Let your voice reflect the meaning of what you're saying: "
+                "slightly brighter when enthusiastic, warmer when reflective.", "yellow"
+            )
+        if val > zone_max:
+            return (
+                "Your tonal colour shifts quite erratically. "
+                "Aim for smooth, intentional variation rather than sudden changes.", "yellow"
+            )
+
+    # ── FLUENCY & FLOW ────────────────────────────────────────────────────────
     if "voiced_flow" in feat:
         if val < zone_min:
             return (
-                "Your voiced speech flow is low — you have too many pauses or short segments. "
-                "Work on longer, connected phrases.", "red"
+                "Your speech feels choppy — you're breaking ideas into too many small fragments. "
+                "Before answering, structure your response as: "
+                "Point → Reason → Example. Then say each part in one connected breath. "
+                "This gives your speech a natural, flowing rhythm.", "red"
             )
         if val > zone_max:
             return (
-                "Your voiced flow is very high — you may be speaking without enough breathing space. "
-                "Allow natural pauses for impact.", "yellow"
+                "You're speaking in very long, unbroken stretches without natural pauses. "
+                "Pause briefly after each key point — it gives listeners time to absorb what you said "
+                "and makes you sound more deliberate and in control.", "yellow"
             )
-        return "Your speech flow could be improved for better rhythm.", "yellow"
+        return "Your speech flow could be slightly more connected and rhythmic.", "yellow"
 
     if "MeanUnvoicedSegmentLength" in feat:
         if val > zone_max:
             return (
-                "Your pauses are too long — they break your flow and lose listener attention. "
-                "Aim for shorter, purposeful pauses.", "red"
+                "Your pauses are too long — they break your momentum and can make you seem uncertain. "
+                "Aim for pauses of about 1 second between ideas. "
+                "If you need thinking time, use a filler phrase like 'That's a good point — ' "
+                "rather than a long silence.", "red"
             )
         if val < zone_min:
-            return "Your pauses are very short — allow brief moments of silence to let key points land.", "yellow"
-        return "Your pause length could be better calibrated.", "yellow"
+            return (
+                "Your pauses are very short — you're rushing between thoughts. "
+                "Allow a brief moment of silence after your key points. "
+                "Silence isn't weakness — it signals confidence and lets your words sink in.", "yellow"
+            )
+        return "Your pause timing could be better calibrated for a more natural rhythm.", "yellow"
 
-    # Generic fallback
+    # ── Generic fallback (direction-aware) ───────────────────────────────────
     if val < zone_min:
         if feat_dir == "INCREASING":
-            return f"Your {friendly} is below the ideal range — try to increase it.", "red"
+            return (
+                f"Your {friendly} is below the ideal range. "
+                "Try recording yourself and listening back to identify what feels off.", "red"
+            )
         elif feat_dir == "DECREASING":
-            return f"Your {friendly} is above the ideal — dial it back slightly.", "red"
-        return f"Your {friendly} is outside the ideal range — try to find the sweet spot.", "yellow"
+            return (
+                f"Your {friendly} is lower than the ideal range. "
+                "You've actually reduced this too much — a slightly higher value would hit the sweet spot.", "yellow"
+            )
+        else:  # MIDDLE_IS_BEST
+            return (
+                f"Your {friendly} is a bit low — nudging it slightly upward will put you "
+                "right in the ideal range.", "yellow"
+            )
     if val > zone_max:
         if feat_dir == "DECREASING":
-            return f"Your {friendly} is above the ideal — dial it back slightly.", "red"
-        return f"Your {friendly} is a bit high — a more moderate level works best.", "yellow"
-
-    return f"Your {friendly} could be slightly adjusted.", "yellow"
+            return (
+                f"Your {friendly} is higher than the ideal range — "
+                "bringing it down a little will help your delivery sound more natural.", "red"
+            )
+        elif feat_dir == "INCREASING":
+            return (
+                f"Your {friendly} is a bit high — "
+                "dialling it back slightly will land you right in the elite range.", "yellow"
+            )
+        else:  # MIDDLE_IS_BEST
+            return (
+                f"Your {friendly} is a bit high — pulling it back slightly will hit "
+                "the sweet spot for a natural delivery.", "yellow"
+            )
+    return f"Your {friendly} could be fine-tuned slightly for a more polished delivery.", "yellow"
 
 
 # ── Eligible feature selector ─────────────────────────────────────────────────
@@ -336,7 +655,6 @@ def _get_eligible_features(
     overall_score: float,
     golden_zones: dict,
 ) -> list:
-    """Filters and ranks features for tip generation. Mirrors video service exactly."""
     if direction == "negative":
         if overall_score < 0.65:
             sensitivity = 0.001
@@ -381,11 +699,6 @@ def build_audio_group_results(
     base_value: float,
     golden_zones: dict,
 ) -> dict:
-    """
-    Mirrors video service's build_group_results() exactly.
-    Returns a dict keyed by group name, each with impact_points, status, tips.
-    Also returns a _metadata key with baseline and synergy_gap.
-    """
     bv = float(base_value[0]) if isinstance(base_value, (list, np.ndarray)) else float(base_value)
     baseline_pct         = bv * 100
     explainer_prediction = baseline_pct
@@ -422,6 +735,7 @@ def build_audio_group_results(
                 if count >= limit or feat in seen:
                     continue
                 val  = feature_values.get(feat, 0)
+                # zone comes directly from calibration JSON — no overrides applied
                 zone = golden_zones.get(feat, {})
                 tip_text, tip_status = _get_coaching_tip(feat, val, zone, dir_type)
                 tips.append({
@@ -434,6 +748,8 @@ def build_audio_group_results(
                     "status":         tip_status,
                     "zone_min":       round(float(zone.get("min", -99)), 4),
                     "zone_max":       round(float(zone.get("max",  99)), 4),
+                    # zone_direction is ground truth from JSON — frontend reads
+                    # this to show "More is better / Less is better / Middle is best"
                     "zone_direction": zone.get("direction", "INCREASING"),
                 })
                 seen.add(feat)
@@ -461,107 +777,167 @@ def build_audio_group_results(
 
 # ============================================================
 # LEGACY COACHING KNOWLEDGE BASE
-# (kept for backward compat — featureExplanations field)
 # ============================================================
 FEATURE_LABELS = {
-    "loudnessPeaksPerSec":                        "Energy & Emphasis",
-    "loudness_sma3_percentile20.0":               "Low-volume Clarity",
-    "loudness_dynamics_power":                    "Dynamic Range",
-    "vocal_projection":                           "Vocal Presence",
-    "loudness_sma3_meanRisingSlope":              "Sentence Energy",
+    "loudnessPeaksPerSec":                        "Emphasis & Stress",
+    "loudness_sma3_percentile20.0":               "Quietest Moments",
+    "loudness_dynamics_power":                    "Volume Dynamics",
+    "vocal_projection":                           "How Well Your Voice Carries",
+    "loudness_sma3_meanRisingSlope":              "Sentence Energy Build-up",
     "loudness_sma3_stddevNorm":                   "Volume Variety",
-    "loudness_sma3_pctlrange0-2":                 "Whisper-to-Shout Range",
+    "loudness_sma3_pctlrange0-2":                 "Quiet-to-Loud Range",
     "loudness_sma3_meanFallingSlope":             "Sentence Endings",
-    "loudness_sma3_stddevRisingSlope":            "Attack Variation",
-    "voiced_flow":                                "Speaking Flow",
-    "vocal_instability":                          "Voice Steadiness",
-    "shimmerLocaldB_sma3nz_stddevNorm":           "Volume Wobble",
-    "HNRdBACF_sma3nz_amean":                      "Voice Clarity",
-    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Variety",
-    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Richness",
+    "loudness_sma3_stddevRisingSlope":            "Energy Consistency",
+    "voiced_flow":                                "Speech Flow",
+    "vocal_instability":                          "Overall Vocal Stability",
+    "shimmerLocaldB_sma3nz_stddevNorm":           "Voice Steadiness Consistency",
+    "HNRdBACF_sma3nz_amean":                      "Voice Smoothness",
+    "F0semitoneFrom27.5Hz_sma3nz_stddevNorm":     "Pitch Range",
+    "F3amplitudeLogRelF0_sma3nz_stddevNorm":      "Voice Richness Variation",
     "F3amplitudeLogRelF0_sma3nz_amean":           "Voice Richness",
-    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vocal Resonance",
-    "F2amplitudeLogRelF0_sma3nz_amean":           "Vowel Power",
+    "F2amplitudeLogRelF0_sma3nz_stddevNorm":      "Vowel Strength Variation",
+    "F2amplitudeLogRelF0_sma3nz_amean":           "Vowel Strength",
     "mfcc1_sma3_stddevNorm":                      "Voice Texture Variety",
-    "mfcc2V_sma3nz_stddevNorm":                   "Voice Warmth Variety",
-    "mfcc3_sma3_stddevNorm":                      "Tonal Variety",
-    "hammarbergIndexV_sma3nz_stddevNorm":         "Voice Quality Steadiness",
-    "alphaRatioV_sma3nz_amean":                   "Spectral Balance",
-    "alphaRatioV_sma3nz_stddevNorm":              "Spectral Balance Variation",
-    "slopeV0-500_sma3nz_stddevNorm":              "Low-Frequency Variation",
-    "spectralFlux_sma3_amean":                    "Expressive Variety",
+    "mfcc2V_sma3nz_stddevNorm":                   "Vocal Warmth Variation",
+    "mfcc3_sma3_stddevNorm":                      "Tonal Color Variety",
+    "hammarbergIndexV_sma3nz_stddevNorm":         "Vocal Texture Consistency",
+    "alphaRatioV_sma3nz_amean":                   "Voice Brightness",
+    "alphaRatioV_sma3nz_stddevNorm":              "Voice Brightness Consistency",
+    "slopeV0-500_sma3nz_stddevNorm":              "Bass Tone Variation",
+    "spectralFlux_sma3_amean":                    "Tonal Variety",
     "MeanUnvoicedSegmentLength":                  "Pause Length",
-    "brightness_contrast":                        "Spectral Brightness",
+    "brightness_contrast":                        "Voice Sharpness & Clarity",
 }
 
 FEATURE_TIPS = {
     "loudnessPeaksPerSec": {
-        "positive": "Excellent! You naturally emphasized key words.",
-        "negative": "Your volume was quite flat. Practice: Pick 3 important words and say them noticeably louder. Do this 5 times a day.",
+        "positive": "Great — you naturally stress key words, which keeps listeners engaged.",
+        "negative": (
+            "Your speaking volume is very flat — everything sounds equally important, "
+            "which makes nothing stand out. Pick the 2–3 most important words in each sentence "
+            "and say them noticeably louder. Practice this on one sentence at a time."
+        ),
     },
     "vocal_projection": {
-        "positive": "Your voice carried well.",
-        "negative": "Your voice sounded a bit weak. Fix: Sit tall, breathe from your belly, and speak as if the person is 3 meters away.",
+        "positive": "Your voice carries well — you sound confident and easy to hear.",
+        "negative": (
+            "Your voice isn't projecting enough. Sit up straight, breathe from your belly "
+            "rather than your chest, and imagine speaking to someone sitting across a large table. "
+            "More air behind your voice means more presence."
+        ),
     },
     "vocal_instability": {
-        "positive": "Your voice was steady.",
-        "negative": "There was slight shakiness. Quick fix: Before speaking, exhale slowly through pursed lips for 5 seconds. Repeat 3–4 times.",
+        "positive": "Your voice stays steady — you sound calm and in control.",
+        "negative": (
+            "Your voice sounds a bit tense or shaky. Before speaking, exhale slowly "
+            "for 5 seconds, relax your shoulders, and let your voice sit lower in your chest. "
+            "Stability comes from breath — not from forcing yourself to sound calm."
+        ),
     },
     "loudness_dynamics_power": {
-        "positive": "Good variation in volume.",
-        "negative": "Volume didn't change much. Practice: Say a sentence normally, then say the most important word much louder. Repeat 10 times.",
+        "positive": "Good variation in how loud and soft you get — you sound engaging and natural.",
+        "negative": (
+            "Your volume stays flat throughout. Try this: say a sentence normally, "
+            "then say the most important word in it noticeably louder. "
+            "Do this for 10 sentences a day."
+        ),
     },
     "loudness_sma3_meanRisingSlope": {
-        "positive": "You started sentences with good energy.",
-        "negative": "You tended to start sentences softly. Fix: Make the first 2–3 words of every sentence slightly stronger.",
+        "positive": "You build energy into sentences well — your openings sound confident.",
+        "negative": (
+            "You tend to start sentences softly. The first few words set the tone for the whole thought — "
+            "try starting each sentence with a little more intention and energy."
+        ),
     },
     "F0semitoneFrom27.5Hz_sma3nz_stddevNorm": {
-        "positive": "Natural pitch changes — sounded conversational.",
-        "negative": "Pitch was fairly flat. Easy practice: Let your voice go slightly higher when introducing a new idea.",
+        "positive": "Your pitch rises and falls naturally — you sound expressive and engaged.",
+        "negative": (
+            "Your pitch is very flat — you're speaking in almost the same tone throughout. "
+            "This is one of the most common reasons people sound robotic. "
+            "Let your voice rise when introducing a key point and drop naturally at the end. "
+            "Even small changes make a big difference."
+        ),
     },
     "voiced_flow": {
-        "positive": "Smooth speaking flow.",
-        "negative": "Sentences felt choppy. Fix: Think 'First... Then... Finally' before speaking and say each part in one breath.",
+        "positive": "Your speech flows smoothly — ideas connect naturally.",
+        "negative": (
+            "Your speech feels choppy. Before answering, structure your response as: "
+            "Point → Reason → Example. Then say each part in one connected breath. "
+            "This creates a natural, flowing rhythm."
+        ),
     },
     "loudness_sma3_percentile20.0": {
-        "positive": "Even your quiet moments were clear and audible.",
-        "negative": "Your quietest moments were a bit too soft. Fix: Imagine speaking to someone at the back of the room, even when quiet.",
+        "positive": "Even your quietest moments are clear and audible.",
+        "negative": (
+            "Your quietest moments are too soft — listeners may miss words. "
+            "Think of your 'quiet' speaking volume as 70% of your normal voice, not near a whisper."
+        ),
     },
     "F3amplitudeLogRelF0_sma3nz_stddevNorm": {
-        "positive": "Good vocal richness and depth.",
-        "negative": "Your voice sounded a bit thin. Fix: Slightly open the back of your throat (like the start of a yawn) while speaking.",
+        "positive": "Your voice has good depth and richness — it's pleasant to listen to.",
+        "negative": (
+            "Your voice sounds a bit thin. Try speaking from slightly lower in your throat — "
+            "relaxed and resonant, not forced. Imagine your voice filling the room."
+        ),
     },
     "F2amplitudeLogRelF0_sma3nz_amean": {
-        "positive": "Strong vowel projection.",
-        "negative": "Your vowels sounded a bit weak. Practice: Over-pronounce vowels for 30 seconds, then speak normally.",
+        "positive": "Your vowels are strong and clear — great for intelligibility.",
+        "negative": (
+            "Your vowels sound a bit weak or swallowed. "
+            "Open your mouth slightly more when speaking — especially on vowel sounds. "
+            "Strong vowels give your voice body and presence."
+        ),
     },
     "HNRdBACF_sma3nz_amean": {
-        "positive": "Your voice sounded clean and smooth — easy and pleasant to listen to.",
-        "negative": "Your voice sounded breathy or rough. Fix: Hum for 10 seconds to warm up your vocal cords.",
+        "positive": "Your voice sounds clean and smooth — easy and pleasant to listen to.",
+        "negative": (
+            "Your voice sounds a bit breathy or rough. "
+            "This often comes from speaking without enough breath support. "
+            "Take a slow belly breath before answering, and try humming for 10 seconds to warm up."
+        ),
     },
     "shimmerLocaldB_sma3nz_stddevNorm": {
-        "positive": "Steady volume control — composed and consistent.",
-        "negative": "Your volume wobbled unpredictably between words. Fix: Practice sustaining 'ahhh' at one volume for 5 seconds.",
+        "positive": "Your voice stays steady — you sound composed and consistent.",
+        "negative": (
+            "Your voice wobbles unpredictably from word to word. "
+            "Practice sustaining an 'ahhh' sound at one volume for 5 seconds — "
+            "this trains steadier breath control."
+        ),
     },
     "MeanUnvoicedSegmentLength": {
-        "positive": "Your pauses were consistent and purposeful.",
-        "negative": "Your pauses were too long. Fix: Use deliberate 1-second pauses between ideas only.",
+        "positive": "Your pauses are well-timed — they feel deliberate, not hesitant.",
+        "negative": (
+            "Your pauses are too long — they break your momentum and can make you seem uncertain. "
+            "Aim for about 1 second between ideas. "
+            "If you need thinking time, use a brief filler phrase rather than a long silence."
+        ),
     },
     "mfcc2V_sma3nz_stddevNorm": {
-        "positive": "Natural vocal warmth variation — engaging and human.",
-        "negative": "Your vocal warmth was too erratic. Focus on consistent breath support throughout each phrase.",
+        "positive": "Your vocal warmth varies naturally — you sound human and engaging.",
+        "negative": (
+            "The warmth in your voice fluctuates too much — some phrases sound natural, "
+            "others sound strained. Keep your throat relaxed and your breathing steady throughout."
+        ),
     },
     "alphaRatioV_sma3nz_amean": {
-        "positive": "Good spectral balance — your voice sounds clear and forward.",
-        "negative": "Your voice lacked high-frequency energy — may sound muffled. Fix: Speak slightly more forward, lips apart.",
+        "positive": "Your voice sounds clear and forward — it's easy to understand.",
+        "negative": (
+            "Your voice sounds a bit muffled or dull. "
+            "Try speaking more 'forward' — teeth slightly apart, lips more active, "
+            "as if directing your voice towards your listener."
+        ),
     },
 }
 
 
 def _get_generic_tip(label: str, is_positive: bool) -> str:
     if is_positive:
-        return f"Your {label.lower()} was a strength — keep doing what you're doing."
-    return f"Your {label.lower()} needs work. Record yourself practicing and listen back."
+        return f"Your {label.lower()} is a real strength — keep doing what you're doing."
+    return (
+        f"Your {label.lower()} could be improved. "
+        "Try recording yourself speaking and listening back — "
+        "you'll often notice patterns you can't hear in the moment."
+    )
 
 
 # ============================================================
@@ -593,16 +969,14 @@ async def lifespan(app: FastAPI):
         bp = models['beta_params']
         print(f"   Beta calibrator loaded — params {bp[0]:.3f}, {bp[1]:.3f}, {bp[2]:.3f}")
 
-        # Load golden zones from calibration JSON
         if not Path(CALIBRATION_PATH).exists():
-            raise FileNotFoundError(f"Missing calibration file: {CALIBRATION_PATH}. Run calibrate_audio_golden_zones.py first.")
+            raise FileNotFoundError(f"Missing calibration file: {CALIBRATION_PATH}.")
         with open(CALIBRATION_PATH) as f:
             calibration = json.load(f)
         models['golden_zones'] = calibration["golden_zones"]
         models['global_stats'] = calibration.get("global_stats", {})
         print(f"   Audio golden zones loaded: {len(models['golden_zones'])} features")
 
-        # SHAP proxy feature list — always use these for SHAP (45 features)
         models['shap_features'] = list(models['shap_proxy'].feature_names_in_)
 
         print("\nSERVICE READY!")
@@ -717,13 +1091,10 @@ def compute_wpm(audio_path: str, transcript_text: str | None) -> float:
 # SCORING
 # ============================================================
 def beta_calibrate(raw_score: float) -> float:
-    """
-    Beta CDF calibration: maps raw XGBoost [0,1] → calibrated [0,1].
-    Uses scipy-compatible CDF, matching calibrate_audio_golden_zones.py.
-    """
-    from scipy.stats import beta as beta_dist
-    a, b, _ = models['beta_params']
-    return float(np.clip(beta_dist.cdf(float(raw_score), float(a), float(b)), 0.0, 1.0))
+    c, d, e = [float(p) for p in models['beta_params']]
+    x = float(np.clip(raw_score, 1e-5, 1.0 - 1e-5))
+    log_odds = c * np.log(x) + d * np.log(1.0 - x) + e
+    return float(1.0 / (1.0 + np.exp(-log_odds)))
 
 
 def score_to_label(score: float) -> str:
@@ -734,23 +1105,18 @@ def score_to_label(score: float) -> str:
 
 
 # ============================================================
-# SHAP ENGINE  (group-based, mirrors video service)
+# SHAP ENGINE
 # ============================================================
 def generate_shap_and_groups(
     X: pd.DataFrame,
     calibrated_score: float,
     feature_values_dict: dict,
 ) -> dict:
-    """
-    Computes SHAP values and builds group results exactly like the video service.
-    Returns both group_results (the structured UI data) and legacy fields.
-    """
     try:
-        explainer    = models['shap_explainer']
+        explainer     = models['shap_explainer']
         shap_features = models['shap_features']
         golden_zones  = models['golden_zones']
 
-        # Align X to shap_features order, fill missing with 0
         X_shap = pd.DataFrame(index=[0], columns=shap_features, dtype=float)
         for col in shap_features:
             X_shap[col] = feature_values_dict.get(col, 0.0)
@@ -761,7 +1127,6 @@ def generate_shap_and_groups(
 
         shap_dict = {feat: float(sv) for feat, sv in zip(shap_features, shap_vals)}
 
-        # ── Group results (the main structured output) ───────────────────────
         group_results = build_audio_group_results(
             shap_dict      = shap_dict,
             feature_values = feature_values_dict,
@@ -770,7 +1135,6 @@ def generate_shap_and_groups(
             golden_zones   = golden_zones,
         )
 
-        # ── Legacy top_contributors list (for featureExplanations) ───────────
         top_contributors = []
         for feat, sv in sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True):
             if abs(sv) < 0.008:
@@ -827,32 +1191,24 @@ def generate_shap_and_groups(
 def predict_confidence(audio_path: str, transcript_text: str | None = None) -> dict:
     logger.info(f"Starting voice analysis: {audio_path}")
 
-    # 1 & 2 — extract + engineer features
     features_df = extract_opensmile_features(audio_path)
     features_df = add_engineered_features(features_df)
 
-    # 3 — select top 45 features for the main model
     top_features = models['top_features']
     X = pd.DataFrame(index=[0], columns=top_features, dtype=float)
     for col in top_features:
         X[col] = features_df[col].iloc[0] if col in features_df.columns else 0.0
 
-    # 4 — predict + calibrate
-    raw_score       = float(np.clip(models['final_model'].predict(X)[0], 0.0, 1.0))
+    raw_score        = float(np.clip(models['final_model'].predict(X)[0], 0.0, 1.0))
     calibrated_score = beta_calibrate(raw_score)
     logger.info(f"Score: raw={raw_score:.4f} → calibrated={calibrated_score:.4f}")
 
-    # Build a flat dict of all available feature values (for group results lookup)
     feature_values_dict = features_df.iloc[0].to_dict()
-    # Add engineered features that were computed
     for col in top_features:
         if col not in feature_values_dict:
             feature_values_dict[col] = float(X[col].iloc[0])
 
-    # 5 — SHAP + group results
     shap_result = generate_shap_and_groups(X, calibrated_score, feature_values_dict)
-
-    # 6 — WPM
     wpm = compute_wpm(audio_path, transcript_text)
 
     return {
@@ -867,30 +1223,33 @@ def predict_confidence(audio_path: str, transcript_text: str | None = None) -> d
 
 def generate_final_summary(score: float, neg_features: list, pos_features: list) -> dict:
     if score > 0.6:
-        opening = "You have a very strong vocal presence! You sound ready for a high-level pitch."
+        opening = "You have a strong vocal presence — you sound ready for a high-level pitch."
     elif score > 0.45:
-        opening = "Good solid performance. You sound professional and capable."
+        opening = "Solid performance. You come across as professional and capable."
     else:
-        opening = "A great start! With a few vocal tweaks, you can really boost your impact."
+        opening = "A good start! A few focused tweaks to your delivery can really boost your impact."
 
     focus_note = best_trait = None
     if neg_features:
-        main_fix_label = FEATURE_LABELS.get(neg_features[0].get("feature",""), "vocal habits")
+        main_fix_label = FEATURE_LABELS.get(neg_features[0].get("feature",""), "vocal delivery")
         focus_note = (
-            f"Don't worry too much about the {main_fix_label.lower()} right now. "
-            "Everyone's voice has natural 'fingerprints' that show up under AI analysis."
+            f"Don't stress too much about the {main_fix_label.lower()} right now — "
+            "every voice has its own natural patterns that show up under analysis."
         )
         if pos_features:
             best_trait_label = FEATURE_LABELS.get(pos_features[0].get("feature",""), "strengths")
-            best_trait = f"Focus on leaning into your {best_trait_label.upper()}, which is already working well."
+            best_trait = (
+                f"Focus on leaning into your {best_trait_label.upper()} — "
+                "it's already working well for you."
+            )
 
     return {
         "opening":    opening,
         "focus_note": focus_note,
         "best_trait": best_trait,
         "reminder": (
-            "This is a simulation. The best interviewers look for your passion and skills — "
-            "this AI is just here to help you polish the delivery!"
+            "This is a simulation. Great interviewers look for your passion and thinking — "
+            "this AI is just here to help you polish your delivery!"
         ),
     }
 
@@ -916,24 +1275,19 @@ async def process_voice_analysis(
         prediction = predict_confidence(audio_path, transcript_text)
         elapsed_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-        raw         = prediction["raw_features"]
-        shap        = prediction["shap"]
+        raw           = prediction["raw_features"]
+        shap          = prediction["shap"]
         group_results = shap["group_results"]
 
-        # Derived backward-compat fields
-        vsps            = raw.get("VoicedSegmentsPerSec", 1.0) or 1.0
-        mvsl            = raw.get("MeanVoicedSegmentLengthSec", 0.3) or 0.3
-        voiced_fraction = min(1.0, float(vsps) * float(mvsl))
+        vsps               = raw.get("VoicedSegmentsPerSec", 1.0) or 1.0
+        mvsl               = raw.get("MeanVoicedSegmentLengthSec", 0.3) or 0.3
+        voiced_fraction    = min(1.0, float(vsps) * float(mvsl))
         pause_ratio_approx = max(0.0, round(1.0 - voiced_fraction, 4))
 
         result = {
             "interviewTurnId": turn_id,
-
-            # ── Core scores ──────────────────────────────────────────────────
             "confidenceLevel":     round(prediction["confidence_score"], 4),
             "confidenceLabelText": prediction["confidence_label"],
-
-            # ── Backward-compat voice metrics (Prisma VoiceAnalysis schema) ─
             "speakingQuality":  round(prediction["confidence_score"], 4),
             "vocalStability":   round(max(0.0, 1.0 - float(raw.get("jitterLocal_sma3nz_amean", 0) or 0)), 4),
             "speakingFluency":  round(voiced_fraction, 4),
@@ -944,25 +1298,15 @@ async def process_voice_analysis(
             "pauseRatio":       pause_ratio_approx,
             "jitter":           round(float(raw.get("jitterLocal_sma3nz_amean", 0) or 0), 6),
             "shimmer":          round(float(raw.get("shimmerLocaldB_sma3nz_amean", 0) or 0), 6),
-
             "modelVersion": "v2.2-egemaps-shap-betacal-zones",
-
-            # ── SHAP values (stored in allProbabilities for DB) ──────────────
             "allProbabilities": shap["all_shap_values"],
-
-            # ── Group results (top-level — mirrors video service exactly) ────
-            # The frontend reads this the same way it reads videoAnalysis.groupResults
             "groupResults": group_results,
-
-            # ── rawFeatures: full eGeMAPS + explainability data ──────────────
             "rawFeatures": {
                 **{
                     k: (round(float(v), 4) if isinstance(v, (int, float, np.floating, np.integer)) else v)
                     for k, v in raw.items()
                 },
-                # Structured group feedback (same as groupResults above, also embedded here)
                 "groupResults": group_results,
-                # Legacy fields kept for any existing frontend consumers
                 "shapExplanations": shap["top_contributors"],
                 "shapBaseValue":    shap["base_value"],
                 "featureExplanations": [
@@ -976,13 +1320,11 @@ async def process_voice_analysis(
                     shap["top_strengths"],
                 ),
             },
-
             "status":           "completed",
             "processingTimeMs": elapsed_ms,
             "processedAt":      datetime.now().isoformat(),
         }
 
-        # Console summary
         print(f"Confidence  : {result['confidenceLevel']*100:.1f}% ({result['confidenceLabelText']})")
         print(f"WPM         : {result['wordsPerMinute']}")
         print(f"Group statuses:")

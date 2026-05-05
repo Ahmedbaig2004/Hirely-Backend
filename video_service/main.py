@@ -29,27 +29,27 @@ models = {}
 _HERE = Path(__file__).resolve().parent
 _MODEL_DIR = _HERE / "models"
 
-LSTM_MODEL_PATH = str(_MODEL_DIR / "video_lstm_v2.onnx")
-EXPLAINER_MODEL_PATH = str(_MODEL_DIR / "video_explainer_model_v2.pkl")
+LSTM_MODEL_PATH         = str(_MODEL_DIR / "video_lstm_v2.onnx")
+EXPLAINER_MODEL_PATH    = str(_MODEL_DIR / "video_explainer_model_v2.pkl")
 EXPLAINER_FEATURES_PATH = str(_MODEL_DIR / "video_explainer_features_v2.pkl")
-SCALER_PATH = str(_MODEL_DIR / "video_scaler_v2.pkl")
-CALIBRATION_PATH = str(_MODEL_DIR / "calibration_data_v8.json")
+SCALER_PATH             = str(_MODEL_DIR / "video_scaler_v2.pkl")
+CALIBRATION_PATH        = str(_MODEL_DIR / "calibration_data_v8.json")
 
-# ── Friendly names for coaching tips ─────────────────────────────────────────
+# ── Friendly names shown to the user ─────────────────────────────────────────
 FRIENDLY_NAMES = {
-    "mouth_expressiveness": "Mouth Expressiveness",
-    "head_nodding": "Head Nodding",
-    "head_tilt": "Head Tilt",
-    "shoulder_alignment": "Shoulder Alignment",
-    "forward_lean": "Forward Lean",
-    "left_hand_velocity": "Left Hand Gestures",
-    "right_hand_velocity": "Right Hand Gestures",
-    "left_hand_expressiveness": "Left Hand Expressiveness",
-    "right_hand_expressiveness": "Right Hand Expressiveness",
-    "body_stillness": "Body Stillness",
-    "hand_gesture_range": "Hand Gesture Range",
-    "smile_intensity": "Smile Intensity",
-    "gaze_consistency": "Conversational Orientation",
+    "mouth_expressiveness":      "Facial Expressiveness",
+    "head_nodding":              "Head Nodding",
+    "head_tilt":                 "Head Position",
+    "shoulder_alignment":        "Shoulder Posture",
+    "forward_lean":              "Leaning Forward",
+    "left_hand_velocity":        "Left Hand Movement",
+    "right_hand_velocity":       "Right Hand Movement",
+    "left_hand_expressiveness":  "Left Hand Gestures",
+    "right_hand_expressiveness": "Right Hand Gestures",
+    "body_stillness":            "Body Stillness",
+    "hand_gesture_range":        "Gesture Range",
+    "smile_intensity":           "Warmth & Smile",
+    "gaze_consistency":          "Eye Contact",
 }
 
 SKIP_COACHING = {
@@ -70,34 +70,31 @@ FEEDBACK_GROUPS = {
     "Facial Engagement": {
         "members": ["mouth_expressiveness", "head_nodding", "smile_intensity", "gaze_consistency"],
         "yellow_threshold": -0.0001,
-        "red_threshold": -0.1600,
+        "red_threshold":    -0.1600,
     },
     "Hand Gestures": {
         "members": ["left_hand_velocity", "right_hand_velocity",
-                     "left_hand_expressiveness", "right_hand_expressiveness",
-                     "hand_gesture_range"],
+                    "left_hand_expressiveness", "right_hand_expressiveness",
+                    "hand_gesture_range"],
         "yellow_threshold": -0.0001,
-        "red_threshold": -0.1200,
+        "red_threshold":    -0.1200,
     },
     "Posture & Presence": {
         "members": ["head_tilt", "shoulder_alignment", "forward_lean", "body_stillness"],
         "yellow_threshold": -0.0200,
-        "red_threshold": -0.0900,
+        "red_threshold":    -0.0900,
     },
 }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCORE RESCALING
+# SCORE LABEL
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_confidence_label(score: float) -> str:
-    if score >= 0.75:
-        return "Highly Confident"
-    if score >= 0.50:
-        return "Confident"
-    if score >= 0.30:
-        return "Moderately Confident"
+    if score >= 0.75:  return "Highly Confident"
+    if score >= 0.50:  return "Confident"
+    if score >= 0.30:  return "Moderately Confident"
     return "Needs Improvement"
 
 
@@ -115,14 +112,14 @@ def enrich_aggregated_stats(stats: dict) -> dict:
 
     for base in base_names:
         mean_v = stats.get(f"{base}_mean")
-        std_v = stats.get(f"{base}_std")
-        max_v = stats.get(f"{base}_max")
+        std_v  = stats.get(f"{base}_std")
+        max_v  = stats.get(f"{base}_max")
         if None in (mean_v, std_v, max_v):
             continue
-        enriched[f"{base}_cv"] = std_v / (abs(mean_v) + 1e-6)
-        enriched[f"{base}_peak_ratio"] = max_v / (abs(mean_v) + 1e-6)
+        enriched[f"{base}_cv"]          = std_v / (abs(mean_v) + 1e-6)
+        enriched[f"{base}_peak_ratio"]  = max_v / (abs(mean_v) + 1e-6)
         enriched[f"{base}_skew_approx"] = (max_v - mean_v) / (std_v + 1e-6)
-        enriched[f"{base}_stability"] = 1.0 / (std_v + 1e-6)
+        enriched[f"{base}_stability"]   = 1.0 / (std_v + 1e-6)
 
     return enriched
 
@@ -131,113 +128,427 @@ def enrich_aggregated_stats(stats: dict) -> dict:
 # COACHING FEEDBACK LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _get_engineered_tip(culprit_feat, base_feature, val, zone, direction):
+def _position_nudge(val: float, zone_min: float, zone_max: float) -> str | None:
+    """
+    Returns a nudge string based purely on WHERE the dot sits relative to the
+    elite zone — NOT based on zone_direction.  This is position-based logic
+    and is always correct regardless of what the JSON direction says.
+
+    Used when SHAP is positive (feature is helping) but value is outside the zone.
+    The nudge is added to the end of the base praise tip.
+
+    val < zone_min → dot is LEFT of zone → user needs to go higher/more
+    val > zone_max → dot is RIGHT of zone → user needs to dial back/less
+    """
+    if val < zone_min:
+        return (
+            "You're doing well here — pushing this a little further "
+            "will bring you right into the elite range."
+        )
+    if val > zone_max:
+        return (
+            "You're doing well here — toning this down slightly "
+            "will land you right in the elite range."
+        )
+    return None  # already in zone
+
+
+def _get_engineered_tip(culprit_feat: str, base_feature: str,
+                         val: float, zone: dict, direction: str) -> tuple[str, str]:
+    """
+    Generates coaching tips for engineered meta-features (_cv, _peak_ratio etc).
+    Returns (tip_text, status_colour).
+
+    For positive SHAP + outside zone: uses _position_nudge (position-based, not direction-based).
+    For negative SHAP: direct actionable tip.
+    """
     friendly = FRIENDLY_NAMES.get(base_feature, base_feature)
     zone_min = zone.get("min", -99)
-    zone_max = zone.get("max", 99)
-    in_zone = zone_min <= val <= zone_max
+    zone_max = zone.get("max",  99)
+    in_zone  = zone_min <= val <= zone_max
 
     if culprit_feat.endswith("_stability"):
         if direction == "positive":
-            if in_zone or val > zone_max:
-                return f"Your {friendly} is impressively consistent — a real strength.", "green"
-            return f"Your {friendly} is growing in consistency. Keep it steady.", "yellow"
-        else:
-            if val < zone_min:
-                return (f"Your {friendly} is too erratic between moments. "
-                        f"Focus on smoother, more controlled movements."), "red"
-            if val > zone_max:
-                return (f"Your {friendly} is almost rigid. "
-                        f"Allow a little natural variation to feel human."), "yellow"
-        return f"Your {friendly} consistency could be slightly improved.", "yellow"
+            base = f"Your {friendly} is impressively consistent throughout — a real strength."
+            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
+            if nudge:
+                return f"{base} {nudge}", "yellow"
+            return base, "green"
+        if val < zone_min:
+            return (
+                f"Your {friendly} varies quite a lot between moments — it can look uncontrolled. "
+                f"Focus on keeping movements smooth and intentional rather than letting them drift.", "red"
+            )
+        if val > zone_max:
+            return (
+                f"Your {friendly} is almost completely frozen — it can look stiff. "
+                f"Allow a little natural, gentle variation.", "yellow"
+            )
+        return f"Your {friendly} consistency could be slightly more controlled.", "yellow"
 
     if culprit_feat.endswith("_cv"):
         if direction == "positive":
-            if in_zone or val > zone_max:
-                return f"The rhythm of your {friendly} is well-balanced.", "green"
-            return f"Your {friendly} variability is improving — keep building rhythm.", "yellow"
-        else:
-            if val > zone_max:
-                return (f"Your {friendly} is highly inconsistent — "
-                        f"the variation is distracting. Aim for smoother delivery."), "red"
-            if val < zone_min:
-                return (f"Your {friendly} is too uniform. "
-                        f"Let it vary a little more to feel natural."), "yellow"
-        return f"The rhythm of your {friendly} could feel more natural.", "yellow"
+            base = f"The rhythm of your {friendly} is well-balanced — varied but controlled."
+            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
+            if nudge:
+                return f"{base} {nudge}", "yellow"
+            return base, "green"
+        if val > zone_max:
+            return (
+                f"Your {friendly} is all over the place — it varies too unpredictably. "
+                f"Aim for consistent, purposeful movements.", "red"
+            )
+        if val < zone_min:
+            return (
+                f"Your {friendly} barely changes at all. "
+                f"Let it vary naturally as you shift between ideas.", "yellow"
+            )
+        return f"The rhythm of your {friendly} could feel a little more natural.", "yellow"
 
     if culprit_feat.endswith("_peak_ratio"):
         if direction == "positive":
-            if in_zone or val > zone_max:
-                return f"Your {friendly} peaks are well-proportioned to your baseline.", "green"
-            return f"Good energy spikes in your {friendly} — keep calibrating them.", "yellow"
-        else:
-            if val > zone_max:
-                return (f"Your {friendly} spikes dramatically at times but stays low otherwise. "
-                        f"Try to maintain a higher baseline instead of occasional bursts."), "red"
-            if val < zone_min:
-                return (f"Your {friendly} lacks peak moments — "
-                        f"add occasional emphasis to keep the audience engaged."), "red"
-        return f"Your {friendly} peak moments could be better calibrated.", "yellow"
+            base = f"Your {friendly} peaks are well-proportioned — you have clear emphasis moments."
+            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
+            if nudge:
+                return f"{base} {nudge}", "yellow"
+            return base, "green"
+        if val > zone_max:
+            return (
+                f"Your {friendly} spikes very high at times but stays low otherwise. "
+                f"Rather than occasional big bursts, aim for a steadier, higher baseline level.", "red"
+            )
+        if val < zone_min:
+            return (
+                f"Your {friendly} lacks standout moments. "
+                f"Add occasional emphasis — a deliberate movement at a key point — "
+                f"to hold the interviewer's attention.", "red"
+            )
+        return f"Your {friendly} peak moments could be a bit more deliberate.", "yellow"
 
     if culprit_feat.endswith("_skew_approx"):
         if direction == "positive":
-            if in_zone or val > zone_max:
-                return f"The distribution of your {friendly} is well-balanced.", "green"
-            return f"Your {friendly} is becoming more balanced — keep going.", "yellow"
-        else:
-            if val > zone_max:
-                return (f"Your {friendly} is mostly flat with occasional bursts — "
-                        f"try to sustain a higher baseline level."), "red"
-            if val < zone_min:
-                return (f"Your {friendly} stays near its peak constantly — "
-                        f"vary it more so emphasis moments stand out."), "yellow"
-        return f"The balance of your {friendly} could be improved.", "yellow"
+            base = f"The distribution of your {friendly} is well-balanced."
+            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
+            if nudge:
+                return f"{base} {nudge}", "yellow"
+            return base, "green"
+        if val > zone_max:
+            return (
+                f"Your {friendly} stays flat most of the time with sudden spikes. "
+                f"Try to maintain a higher, steadier baseline instead.", "red"
+            )
+        if val < zone_min:
+            return (
+                f"Your {friendly} is at its peak almost constantly. "
+                f"Vary it more — so when you do emphasise something, it actually stands out.", "yellow"
+            )
+        return f"The balance of your {friendly} could be slightly more varied.", "yellow"
 
     return f"Your {friendly} could be adjusted for better impact.", "yellow"
 
 
-def get_granular_feedback(culprit_feat, base_feature, val, zone, direction="negative"):
-    friendly = FRIENDLY_NAMES.get(base_feature, base_feature)
-    is_hand = "hand" in base_feature
+def get_granular_feedback(culprit_feat: str, base_feature: str, val: float,
+                           zone: dict, direction: str = "negative") -> tuple[str, str]:
+    """
+    Returns (tip_text, status_colour) for one video tip.
 
+    KEY DESIGN RULES:
+    1. zone_direction from the JSON is ground truth — this function never changes it.
+       The frontend reads zone_direction from the tip payload to show
+       "More is better / Less is better / Middle is best". That must reflect the JSON.
+
+    2. For POSITIVE SHAP + outside zone: use _position_nudge() which looks at WHERE
+       the dot sits relative to the zone (val < zone_min → push higher,
+       val > zone_max → dial back). This is always correct regardless of direction.
+
+    3. For NEGATIVE SHAP: give a direct, actionable, plain-English tip.
+       Use val vs zone_min/zone_max to determine the direction of advice.
+    """
+    friendly = FRIENDLY_NAMES.get(base_feature, base_feature)
+    is_hand  = "hand" in base_feature
+    zone_min = zone.get("min", -99) if zone else -99
+    zone_max = zone.get("max",  99) if zone else  99
+    in_zone  = zone_min <= val <= zone_max
+
+    # Route engineered sub-features to their specialist tip generator
     if any(culprit_feat.endswith(s) for s in ENGINEERED_SUFFIXES):
         return _get_engineered_tip(culprit_feat, base_feature, val, zone, direction)
 
-    if is_hand and zone and val <= (zone.get("min", 0) + 0.10):
+    # Hands not in frame
+    if is_hand and zone and val <= (zone_min + 0.10):
         if direction == "positive":
-            return (f"Your {friendly} weren't visible in frame. "
-                    f"This kept your posture stable, but consider showing them to add impact."), "yellow"
-        return (f"Your {friendly} weren't detected. "
-                f"Bring your hands into the frame to show engagement."), "red"
+            return (
+                f"Your hands weren't visible in frame. "
+                f"This kept things stable — but showing them would add even more impact.", "yellow"
+            )
+        return (
+            f"Your hands weren't visible in frame during the interview. "
+            f"Try to keep your hands in view — natural hand gestures make you look "
+            f"more engaged and confident.", "red"
+        )
 
+    # ── Negative SHAP + already in zone ─────────────────────────────────────
+    if direction == "negative" and in_zone:
+        return (
+            f"Your {friendly} is within the ideal range — "
+            f"this may be slightly affected by other factors. Keep doing what you're doing here.", "yellow"
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # POSITIVE SHAP TIPS
+    # Base praise + position-based nudge if outside zone.
+    # _position_nudge uses val vs zone_min/zone_max — never zone_direction.
+    # ══════════════════════════════════════════════════════════════════════════
     if direction == "positive":
-        if val < zone.get("min", -99):
-            return f"You're on the right track with {friendly}! Keep it up to reach the elite standard.", "yellow"
-        return f"Your {friendly} is a key strength — it's well-calibrated and professional.", "green"
+        nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
 
-    feat_dir = zone.get("direction", "INCREASING") if zone else "INCREASING"
-
-    if "_std" in culprit_feat:
-        if val < zone.get("min", -99):
-            return f"Your {friendly} feels robotic. Let it move more naturally.", "red"
-        if val > zone.get("max", 99):
-            return f"Your {friendly} is too erratic. Focus on keeping movements smooth.", "red"
-
-    if val < zone.get("min", -99):
-        if feat_dir == "INCREASING":
-            return f"Your overall {friendly} level is low. Show more of it.", "red"
-        elif feat_dir == "DECREASING":
-            return f"Your {friendly} is tilting too far to one side. Try to keep it more centered.", "red"
+        # Feature-specific base praise
+        if base_feature == "mouth_expressiveness":
+            base = "Your face is expressive and animated — you look engaged and natural."
+        elif base_feature == "head_nodding":
+            base = "You nod at the right moments — you look attentive and engaged."
+        elif base_feature == "smile_intensity":
+            base = "Your warmth comes through naturally — you look approachable and genuine."
+        elif base_feature == "gaze_consistency":
+            base = "Your eye contact is steady and natural — you look focused and confident."
+        elif base_feature in ("left_hand_velocity", "right_hand_velocity"):
+            side = "left" if "left" in base_feature else "right"
+            base = f"Your {side} hand moves at a good pace — your gestures feel natural and purposeful."
+        elif base_feature in ("left_hand_expressiveness", "right_hand_expressiveness"):
+            side = "left" if "left" in base_feature else "right"
+            base = f"Your {side} hand gestures add emphasis and make you look engaged."
+        elif base_feature == "hand_gesture_range":
+            base = "Your gesture range is well-sized — not too small, not too large."
+        elif base_feature == "body_stillness":
+            base = "You hold yourself steady — you look composed and in control."
+        elif base_feature == "shoulder_alignment":
+            base = "Your shoulders are well-aligned — your posture looks professional and open."
+        elif base_feature == "forward_lean":
+            base = "Your forward lean shows engagement — you look interested and present."
+        elif base_feature == "head_tilt":
+            base = "Your head position is well-balanced — you look attentive and even-keeled."
         else:
-            return f"Your {friendly} is too low — try to find the middle range.", "red"
+            base = f"Your {friendly} is a key strength — it's well-calibrated and professional."
 
-    if val > zone.get("max", 99):
-        if feat_dir == "DECREASING":
-            return f"Your {friendly} is excessive. Dial it back.", "red"
-        elif feat_dir == "INVERTED_U":
-            return f"Your {friendly} is past the sweet spot — dial it back slightly.", "red"
-        return f"Your {friendly} is a bit too intense. Bring it down slightly for a more natural feel.", "red"
+        if nudge:
+            return f"{base} {nudge}", "yellow"
+        return base, "green"
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # NEGATIVE SHAP TIPS — specific, plain-English, actionable
+    # Uses val vs zone_min/zone_max to determine the direction of advice.
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── FACIAL EXPRESSIVENESS ─────────────────────────────────────────────────
+    if base_feature == "mouth_expressiveness":
+        if val < zone_min:
+            return (
+                "Your face looks quite still during the interview — minimal expression. "
+                "Try letting your face react naturally to what you're saying: raise your eyebrows "
+                "slightly on a key point, nod as you listen, let a small smile sit naturally. "
+                "Expressiveness signals enthusiasm and keeps the interviewer engaged.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your facial expressions are very intense — it can feel overdone on camera. "
+                "React naturally rather than performing — subtle, genuine reactions "
+                "read better than big, exaggerated ones.", "yellow"
+            )
+        return "Your facial expressiveness could be slightly more animated for a warmer impression.", "yellow"
+
+    # ── HEAD NODDING ─────────────────────────────────────────────────────────
+    if base_feature == "head_nodding":
+        if val < zone_min:
+            return (
+                "You're barely nodding throughout the interview. "
+                "A slow, deliberate nod when the interviewer speaks — or when you make a key point — "
+                "signals active listening and confidence. You don't need to nod constantly, "
+                "just at meaningful moments.", "red"
+            )
+        if val > zone_max:
+            return (
+                "You're nodding very frequently — it can look nervous or overly eager. "
+                "Reserve head nods for when you genuinely agree or want to show you're listening. "
+                "Stillness between nods looks much more confident.", "yellow"
+            )
+        return "Your head nodding could be slightly more deliberate and purposeful.", "yellow"
+
+    # ── SMILE INTENSITY ───────────────────────────────────────────────────────
+    if base_feature == "smile_intensity":
+        if val < zone_min:
+            return (
+                "You're barely smiling throughout the interview — "
+                "you may come across as cold or disengaged, even if that's not your intention. "
+                "You don't need to force it — just let a slight, genuine smile sit on your face "
+                "while you're listening. It makes a big difference to how approachable you look.", "red"
+            )
+        if val > zone_max:
+            return (
+                "You're smiling almost constantly — which can feel unnatural or performative on camera. "
+                "Let your expression match the moment: smile warmly when appropriate, "
+                "but allow a neutral, attentive look when discussing serious points.", "yellow"
+            )
+        return "Your smile could be a little more natural and consistent throughout.", "yellow"
+
+    # ── EYE CONTACT ───────────────────────────────────────────────────────────
+    if base_feature == "gaze_consistency":
+        if val < zone_min:
+            return (
+                "Your gaze is moving around quite a bit — away from the camera. "
+                "In a video interview, looking at the camera lens is the equivalent of eye contact. "
+                "Try placing a small sticker just above your camera as a reminder to look there, "
+                "especially when answering questions.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your gaze is very fixed — it can look intense or unnatural. "
+                "It's okay to look away briefly when thinking. "
+                "Natural eye contact involves occasional breaks, then returning to the camera.", "yellow"
+            )
+        return "Your eye contact could be slightly more consistent throughout the interview.", "yellow"
+
+    # ── HAND VELOCITY ─────────────────────────────────────────────────────────
+    if base_feature in ("left_hand_velocity", "right_hand_velocity"):
+        side = "left" if "left" in base_feature else "right"
+        if val < zone_min:
+            return (
+                f"Your {side} hand is mostly still during the interview. "
+                f"Natural hand movement while speaking helps emphasise your points and "
+                f"makes you look more engaged. Try letting your hands move freely "
+                f"as you would in a normal face-to-face conversation.", "red"
+            )
+        if val > zone_max:
+            return (
+                f"Your {side} hand is moving very quickly and frequently — "
+                f"it can be distracting. Slow down your gestures and make them more deliberate. "
+                f"A few well-timed, controlled movements land better than constant motion.", "yellow"
+            )
+        return f"Your {side} hand movement could be slightly more deliberate.", "yellow"
+
+    # ── HAND EXPRESSIVENESS ───────────────────────────────────────────────────
+    if base_feature in ("left_hand_expressiveness", "right_hand_expressiveness"):
+        side = "left" if "left" in base_feature else "right"
+        if val < zone_min:
+            return (
+                f"Your {side} hand isn't contributing much — it's not adding any gestural emphasis. "
+                f"Try using it to illustrate your points: "
+                f"open palm when explaining, a gentle chop motion to emphasise, "
+                f"counting on fingers for lists.", "red"
+            )
+        if val > zone_max:
+            return (
+                f"Your {side} hand is very active — the gestures are drawing attention away "
+                f"from what you're saying. Pull back slightly and make each gesture deliberate.", "yellow"
+            )
+        return f"Your {side} hand expressiveness could be slightly more purposeful.", "yellow"
+
+    # ── HAND GESTURE RANGE ────────────────────────────────────────────────────
+    if base_feature == "hand_gesture_range":
+        if val < zone_min:
+            return (
+                "Your hand gestures are very small and tight — "
+                "they're barely visible and have little impact. "
+                "Try opening your gestures up: let your hands move to chest height "
+                "and out from your body slightly. Bigger but controlled gestures "
+                "project more confidence.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your gestures are very large and wide — "
+                "they can feel overwhelming on a video call. "
+                "Keep movements closer to your body and at chest level for a more "
+                "controlled, professional look.", "yellow"
+            )
+        return "Your gesture range could be slightly better calibrated.", "yellow"
+
+    # ── BODY STILLNESS ────────────────────────────────────────────────────────
+    if base_feature == "body_stillness":
+        if val < zone_min:
+            return (
+                "You're moving around quite a bit in your seat — "
+                "swaying, shifting, or fidgeting. This can make you look nervous or distracted. "
+                "Try to sit still and upright, with your feet flat on the floor. "
+                "Stillness reads as confidence on camera.", "red"
+            )
+        if val > zone_max:
+            return (
+                "You're almost completely frozen — which can look tense or uncomfortable. "
+                "It's okay to shift slightly between points. "
+                "A relaxed, natural stillness looks better than a rigid one.", "yellow"
+            )
+        return "Your body stillness could be slightly more grounded.", "yellow"
+
+    # ── SHOULDER ALIGNMENT ────────────────────────────────────────────────────
+    if base_feature == "shoulder_alignment":
+        if val < zone_min:
+            return (
+                "Your shoulders are noticeably uneven — one is higher than the other. "
+                "Try to sit squarely facing the camera, with both shoulders level. "
+                "Uneven posture can look like tension or discomfort.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your shoulders are very tense or raised — it can look like you're stressed. "
+                "Try dropping your shoulders, take a breath, and let them relax before answering.", "yellow"
+            )
+        return "Your shoulder posture could be slightly more open and relaxed.", "yellow"
+
+    # ── FORWARD LEAN ─────────────────────────────────────────────────────────
+    if base_feature == "forward_lean":
+        if val < zone_min:
+            return (
+                "You're leaning back or sitting very upright — "
+                "you may come across as disengaged or distant. "
+                "Try leaning in very slightly when answering — "
+                "just enough to show you're present and interested.", "red"
+            )
+        if val > zone_max:
+            return (
+                "You're leaning quite far forward — it can look intense or uncomfortable on camera. "
+                "Sit back slightly to a neutral, upright position. "
+                "A gentle lean-in at key moments is powerful; constant forward lean is overwhelming.", "yellow"
+            )
+        return "Your forward lean could be slightly more natural.", "yellow"
+
+    # ── HEAD TILT ─────────────────────────────────────────────────────────────
+    if base_feature == "head_tilt":
+        if val < zone_min:
+            return (
+                "Your head is tilting quite significantly to one side. "
+                "A slight tilt can show curiosity, but too much can look uncertain. "
+                "Try to keep your head more level — especially when making important points.", "red"
+            )
+        if val > zone_max:
+            return (
+                "Your head is tilted very far — it can look awkward or uncomfortable. "
+                "Try to keep your head relatively level and centered.", "red"
+            )
+        return "Your head position could be slightly more centered.", "yellow"
+
+    # ── _std raw features ─────────────────────────────────────────────────────
+    if "_std" in culprit_feat:
+        if val < zone_min:
+            return (
+                f"Your {friendly} feels robotic — there's almost no natural variation. "
+                f"Let it move a little more freely as you speak.", "red"
+            )
+        if val > zone_max:
+            return (
+                f"Your {friendly} is too erratic — "
+                f"focus on keeping movements smoother and more controlled.", "red"
+            )
+
+    # ── Generic direction-aware fallback ──────────────────────────────────────
+    if val < zone_min:
+        return (
+            f"Your {friendly} is lower than the ideal range — "
+            f"try to show a bit more of this throughout the interview.", "red"
+        )
+    if val > zone_max:
+        return (
+            f"Your {friendly} is a bit higher than the ideal range — "
+            f"dialling it back slightly will make your delivery feel more natural.", "yellow"
+        )
     return f"Your {friendly} could be slightly adjusted to feel more natural.", "yellow"
 
 
@@ -262,8 +573,9 @@ def get_eligible_features(shap_dict, group_members, scaled_stats_dict, direction
             continue
         if feat in SKIP_COACHING:
             continue
-        val = scaled_stats_dict.get(feat, 0)
-        zone = models["golden_zones"].get(feat, {"min": -99, "max": 99})
+
+        val     = scaled_stats_dict.get(feat, 0)
+        zone    = models["golden_zones"].get(feat, {"min": -99, "max": 99})
         in_zone = (zone["min"] <= val <= zone["max"])
 
         if direction == "positive":
@@ -305,15 +617,15 @@ def build_group_results(shap_values_dict, scaled_stats_dict, overall_score, base
         pos_features = get_eligible_features(
             shap_values_dict, members, scaled_stats_dict, "positive", overall_score)
 
-        tips = []
-        seen_bases: set = set()
-
         if status == "green":
             p_limit, n_limit = 4, 1
         elif status == "yellow":
             p_limit, n_limit = 3, 3
         else:
             p_limit, n_limit = 1, 4
+
+        tips = []
+        seen_bases: set = set()
 
         def process_tips(features, dir_type, limit):
             count = 0
@@ -324,24 +636,32 @@ def build_group_results(shap_values_dict, scaled_stats_dict, overall_score, base
                 if base in seen_bases:
                     continue
 
-                val = scaled_stats_dict.get(feat, 0)
-                zone = models["golden_zones"].get(feat, {})
+                # Use BASE feature's val and zone for the bar display.
+                # culprit_feat (e.g. smile_intensity_cv) routes which tip branch
+                # to use, but the slider shows the BASE feature's position.
+                base_val  = scaled_stats_dict.get(f"{base}_mean", scaled_stats_dict.get(base, 0))
+                base_zone = models["golden_zones"].get(base, models["golden_zones"].get(feat, {}))
 
                 tip_text, tip_status = get_granular_feedback(
-                    feat, base, val, zone, direction=dir_type)
+                    feat, base, base_val, base_zone, direction=dir_type)
 
                 tips.append({
-                    "feature": feat,
-                    "base": base,
-                    "friendly": FRIENDLY_NAMES.get(base, base),
-                    "shap": round(float(shap_val), 4),
+                    "feature":   feat,
+                    "base":      base,
+                    "friendly":  FRIENDLY_NAMES.get(base, base),
+                    "shap":      round(float(shap_val), 4),
                     "direction": dir_type,
-                    "tip": tip_text,
-                    "status": tip_status,
-                    "val": round(float(val), 4),
-                    "zone_min": round(float(zone.get("min", -99)), 4),
-                    "zone_max": round(float(zone.get("max", 99)), 4),
-                    "zone_direction": zone.get("direction", "INCREASING"),
+                    "tip":       tip_text,
+                    "status":    tip_status,
+                    # ── Bar display fields ──────────────────────────────────
+                    # val and zone_min/zone_max are for the EliteZoneBar slider
+                    "val":       round(float(base_val), 4),
+                    "zone_min":  round(float(base_zone.get("min", -99)), 4),
+                    "zone_max":  round(float(base_zone.get("max",  99)), 4),
+                    # zone_direction is ALWAYS from the raw JSON — never overridden.
+                    # The frontend reads this to show "More is better / Less is better /
+                    # Middle is best". It must reflect the calibration data, not tip logic.
+                    "zone_direction": base_zone.get("direction", "INCREASING"),
                 })
                 seen_bases.add(base)
                 count += 1
@@ -355,8 +675,8 @@ def build_group_results(shap_values_dict, scaled_stats_dict, overall_score, base
 
         group_results[group_name] = {
             "impact_points": round(float(impact_points), 1),
-            "status": status,
-            "tips": tips,
+            "status":        status,
+            "tips":          tips,
         }
 
     return group_results
@@ -380,26 +700,26 @@ def process_video_v2(video_path: str) -> dict:
             axis=0,
         )
 
-    extractor = LandmarkExtractor()
+    extractor     = LandmarkExtractor()
     all_landmarks = extractor.extract(list(all_frames))
     extractor.close()
 
-    smile_ext = SmileExtractor(model_path=FACE_LANDMARKER_PATH)
+    smile_ext  = SmileExtractor(model_path=FACE_LANDMARKER_PATH)
     all_smiles = smile_ext.extract_smile_scores(all_frames)
     smile_ext.close()
 
-    lstm_session = models["lstm_session"]
-    scaler = models["scaler"]
+    lstm_session       = models["lstm_session"]
+    scaler             = models["scaler"]
     explainer_features = models["explainer_features"]
-    shap_explainer = models["shap_explainer"]
+    shap_explainer     = models["shap_explainer"]
 
     master_features, window_scores = [], []
     starts = list(range(0, len(all_frames) - WINDOW_SIZE + 1, STEP_SIZE)) or [0]
 
     for start in starts:
-        end = start + WINDOW_SIZE
+        end          = start + WINDOW_SIZE
         norm_dicts, scales = normalize(all_landmarks[start:end])
-        feat_array = scaler.transform(
+        feat_array   = scaler.transform(
             engineer_features(norm_dicts, scales, all_smiles[start:end])
         )
         input_tensor = feat_array[np.newaxis, :, :].astype(np.float32)
@@ -410,10 +730,10 @@ def process_video_v2(video_path: str) -> dict:
         window_scores.append(np.clip((raw - min_lstm) / (max_lstm - min_lstm), 0.0, 1.0))
         master_features.append(feat_array)
 
-    raw_stats = aggregate_features(np.vstack(master_features))
+    raw_stats      = aggregate_features(np.vstack(master_features))
     enriched_stats = enrich_aggregated_stats(raw_stats)
 
-    X_single = pd.DataFrame([enriched_stats])[explainer_features]
+    X_single  = pd.DataFrame([enriched_stats])[explainer_features]
     shap_vals = shap_explainer.shap_values(X_single)[0]
     shap_dict = {feat: float(val) for feat, val in zip(explainer_features, shap_vals)}
 
@@ -427,7 +747,7 @@ def process_video_v2(video_path: str) -> dict:
     )
 
     return {
-        "scaled_score": overall_score,
+        "scaled_score":  overall_score,
         "group_results": group_results,
     }
 
@@ -446,18 +766,18 @@ async def lifespan(app: FastAPI):
         import shap
 
         models["lstm_session"] = ort.InferenceSession(LSTM_MODEL_PATH)
-        print(f"   ONNX LSTM v2 loaded: {LSTM_MODEL_PATH}")
+        print(f"   ONNX LSTM v2 loaded")
 
-        expl_model = joblib.load(EXPLAINER_MODEL_PATH)
+        expl_model                  = joblib.load(EXPLAINER_MODEL_PATH)
         models["explainer_features"] = joblib.load(EXPLAINER_FEATURES_PATH)
-        models["scaler"] = joblib.load(SCALER_PATH)
-        models["shap_explainer"] = shap.TreeExplainer(expl_model)
+        models["scaler"]            = joblib.load(SCALER_PATH)
+        models["shap_explainer"]    = shap.TreeExplainer(expl_model)
         print(f"   XGBoost explainer loaded ({len(models['explainer_features'])} features)")
 
         with open(CALIBRATION_PATH, "r") as f:
             calibration = json.load(f)
-        models["min_lstm"] = calibration["global_stats"]["score_min"]
-        models["max_lstm"] = calibration["global_stats"]["score_max"]
+        models["min_lstm"]     = calibration["global_stats"]["score_min"]
+        models["max_lstm"]     = calibration["global_stats"]["score_max"]
         models["golden_zones"] = calibration["golden_zones"]
         print(f"   Calibration loaded: {len(models['golden_zones'])} golden zones")
 
@@ -489,48 +809,39 @@ except Exception as e:
     redis_client = None
 
 
-async def run_video_analysis(
-    turn_id: int,
-    video_path: str,
-    interview_id: str,
-    queued_at: datetime,
-):
+async def run_video_analysis(turn_id: int, video_path: str, interview_id: str, queued_at: datetime):
     start_time = time.time()
     try:
         logger.info(f"Processing video — Turn {turn_id}, file: {video_path}")
 
-        result_data = process_video_v2(video_path)
+        result_data  = process_video_v2(video_path)
         scaled_score = result_data["scaled_score"]
-        label = get_confidence_label(scaled_score)
-        elapsed_ms = int((time.time() - start_time) * 1000)
+        label        = get_confidence_label(scaled_score)
+        elapsed_ms   = int((time.time() - start_time) * 1000)
 
         result = {
-            "interviewTurnId": turn_id,
-            "confidenceLevel": round(scaled_score, 4),
+            "interviewTurnId":    turn_id,
+            "confidenceLevel":    round(scaled_score, 4),
             "confidenceLabelText": label,
-            "rawScore": round(scaled_score, 4),
-            "modelVersion": "v2.0-lstm-shap",
-            "status": "completed",
-            "processingTimeMs": elapsed_ms,
-            "processedAt": datetime.now().isoformat(),
-            "groupResults": result_data["group_results"],
+            "rawScore":           round(scaled_score, 4),
+            "modelVersion":       "v2.0-lstm-shap",
+            "status":             "completed",
+            "processingTimeMs":   elapsed_ms,
+            "processedAt":        datetime.now().isoformat(),
+            "groupResults":       result_data["group_results"],
         }
 
-        logger.info(
-            f"Turn {turn_id} done — score={scaled_score:.4f}, "
-            f"label={label}, {elapsed_ms}ms"
-        )
-        logger.info(f"[video-service] Turn {turn_id} extraction completed successfully")
+        logger.info(f"Turn {turn_id} done — score={scaled_score:.4f}, label={label}, {elapsed_ms}ms")
 
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"Turn {turn_id} failed: {e}", exc_info=True)
         result = {
-            "interviewTurnId": turn_id,
-            "status": "failed",
-            "errorMessage": str(e),
+            "interviewTurnId":  turn_id,
+            "status":           "failed",
+            "errorMessage":     str(e),
             "processingTimeMs": elapsed_ms,
-            "processedAt": datetime.now().isoformat(),
+            "processedAt":      datetime.now().isoformat(),
         }
 
     if redis_client:
@@ -547,24 +858,22 @@ async def run_video_analysis(
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "service": "Hirely Video Analysis v2.0",
+        "status":        "ok",
+        "service":       "Hirely Video Analysis v2.0",
         "models_loaded": bool(models.get("lstm_session")),
-        "shap_ready": bool(models.get("shap_explainer")),
-        "timestamp": datetime.now().isoformat(),
+        "shap_ready":    bool(models.get("shap_explainer")),
+        "timestamp":     datetime.now().isoformat(),
     }
 
 
 class VideoAnalysisRequest(BaseModel):
-    turn_id: int
+    turn_id:      int
     interview_id: str
-    video_path: str
+    video_path:   str
 
 
 @app.post("/analyze-video")
-async def analyze_video(
-    request_data: VideoAnalysisRequest, background_tasks: BackgroundTasks
-):
+async def analyze_video(request_data: VideoAnalysisRequest, background_tasks: BackgroundTasks):
     try:
         logger.info(f"Queued video analysis — Turn {request_data.turn_id}")
         background_tasks.add_task(
@@ -575,9 +884,9 @@ async def analyze_video(
             datetime.now(),
         )
         return {
-            "status": "queued",
-            "turn_id": request_data.turn_id,
-            "message": "Video analysis queued (v2 with SHAP).",
+            "status":    "queued",
+            "turn_id":   request_data.turn_id,
+            "message":   "Video analysis queued (v2 with SHAP).",
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
