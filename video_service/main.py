@@ -37,7 +37,7 @@ CALIBRATION_PATH        = str(_MODEL_DIR / "calibration_data_v8.json")
 
 # ── Friendly names shown to the user ─────────────────────────────────────────
 FRIENDLY_NAMES = {
-    "mouth_expressiveness":      "Facial Expressiveness",
+    "mouth_expressiveness":      "Mouth Expressiveness",
     "head_nodding":              "Head Nodding",
     "head_tilt":                 "Head Position",
     "shoulder_alignment":        "Shoulder Posture",
@@ -49,7 +49,7 @@ FRIENDLY_NAMES = {
     "body_stillness":            "Body Stillness",
     "hand_gesture_range":        "Gesture Range",
     "smile_intensity":           "Warmth & Smile",
-    "gaze_consistency":          "Eye Contact",
+    "gaze_consistency":          "Conversational Orientation",
 }
 
 SKIP_COACHING = {
@@ -64,7 +64,7 @@ SKIP_COACHING = {
     "gaze_consistency_skew_approx", "gaze_consistency_stability",
 }
 
-ENGINEERED_SUFFIXES = ("_cv", "_peak_ratio", "_skew_approx", "_stability")
+ENGINEERED_SUFFIXES = ("_mean", "_std", "_max", "_cv", "_peak_ratio", "_skew_approx", "_stability")
 
 FEEDBACK_GROUPS = {
     "Facial Engagement": {
@@ -128,181 +128,394 @@ def enrich_aggregated_stats(stats: dict) -> dict:
 # COACHING FEEDBACK LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _position_nudge(val: float, zone_min: float, zone_max: float) -> str | None:
+def _direction_nudge(val: float, zone_min: float, zone_max: float, direction: str) -> str | None:
     """
-    Returns a nudge string based purely on WHERE the dot sits relative to the
-    elite zone — NOT based on zone_direction.  This is position-based logic
-    and is always correct regardless of what the JSON direction says.
-
-    Used when SHAP is positive (feature is helping) but value is outside the zone.
-    The nudge is added to the end of the base praise tip.
-
-    val < zone_min → dot is LEFT of zone → user needs to go higher/more
-    val > zone_max → dot is RIGHT of zone → user needs to dial back/less
+    Returns a nudge toward the elite zone based on feature direction type.
+    Used for POSITIVE SHAP + outside zone.
     """
-    if val < zone_min:
-        return (
-            "You're doing well here — pushing this a little further "
-            "will bring you right into the elite range."
-        )
-    if val > zone_max:
-        return (
-            "You're doing well here — toning this down slightly "
-            "will land you right in the elite range."
-        )
+    if direction == "INCREASING":
+        if val < zone_min:
+            return "You're doing well — push this a little further to reach the elite range."
+        if val > zone_max:
+            return "You're doing well — dial this back slightly to land in the elite range."
+
+    elif direction == "DECREASING":
+        if val > zone_max:
+            return "You're doing well — reduce this slightly to land in the elite range."
+        if val < zone_min:
+            return "You're doing well — bring this back up slightly to reach the elite range."
+
+    elif direction == "INVERTED_U":
+        if val < zone_min:
+            return "You're doing well — push this up slightly to reach the elite range."
+        if val > zone_max:
+            return "You're doing well — dial this back slightly to reach the elite range."
+
     return None  # already in zone
 
 
 def _get_engineered_tip(culprit_feat: str, base_feature: str,
                          val: float, zone: dict, direction: str) -> tuple[str, str]:
-    """
-    Generates coaching tips for engineered meta-features (_cv, _peak_ratio etc).
-    Returns (tip_text, status_colour).
+    friendly  = FRIENDLY_NAMES.get(base_feature, base_feature)
+    zone_min  = zone.get("min", -99)
+    zone_max  = zone.get("max",  99)
+    feat_dir  = zone.get("direction", "INCREASING")
+    in_zone   = zone_min <= val <= zone_max
 
-    For positive SHAP + outside zone: uses _position_nudge (position-based, not direction-based).
-    For negative SHAP: direct actionable tip.
-    """
-    friendly = FRIENDLY_NAMES.get(base_feature, base_feature)
-    zone_min = zone.get("min", -99)
-    zone_max = zone.get("max",  99)
-    in_zone  = zone_min <= val <= zone_max
+    # ── Positive SHAP: praise + nudge if outside zone ────────────────────────
+    def positive_tip(base_praise: str) -> tuple[str, str]:
+        if in_zone:
+            return base_praise, "green"
+        nudge = _direction_nudge(val, zone_min, zone_max, feat_dir)
+        if nudge:
+            return f"{base_praise} {nudge}", "yellow"
+        return base_praise, "green"
 
-    if culprit_feat.endswith("_stability"):
-        if direction == "positive":
-            base = f"Your {friendly} is impressively consistent throughout — a real strength."
-            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
-            if nudge:
-                return f"{base} {nudge}", "yellow"
-            return base, "green"
+    # ── Negative SHAP helpers ─────────────────────────────────────────────────
+    def negative_tip_increasing() -> tuple[str, str]:
+        if in_zone:
+            return None, None
         if val < zone_min:
             return (
-                f"Your {friendly} varies quite a lot between moments — it can look uncontrolled. "
-                f"Focus on keeping movements smooth and intentional rather than letting them drift.", "red"
+                f"Your {friendly} is below the elite range — "
+                f"try to increase this to reach the ideal level.", "red"
             )
+        return (
+            f"Your {friendly} is past the elite range — "
+            f"dial it back slightly to land in the ideal zone.", "yellow"
+        )
+
+    def negative_tip_decreasing() -> tuple[str, str]:
+        if in_zone:
+            return None, None
         if val > zone_max:
+            return (
+                f"Your {friendly} is too high — "
+                f"reduce this to reach the elite range.", "red"
+            )
+        return (
+            f"Your {friendly} is below the elite range — "
+            f"bring it back up slightly toward the ideal level.", "yellow"
+        )
+
+    def negative_tip_inverted() -> tuple[str, str]:
+        if in_zone:
+            return None, None
+        if val < zone_min:
+            return (
+                f"Your {friendly} is too low — "
+                f"bring it up toward the middle elite range.", "red"
+            )
+        return (
+            f"Your {friendly} is too high — "
+            f"bring it down toward the middle elite range.", "red"
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # _mean
+    # ══════════════════════════════════════════════════════════════════════════
+    if culprit_feat.endswith("_mean"):
+        if direction == "positive":
+            return positive_tip(f"Your overall {friendly} level is well-calibrated — a real strength.")
+        if feat_dir == "INCREASING":
+            return negative_tip_increasing()
+        if feat_dir == "DECREASING":
+            return negative_tip_decreasing()
+        return negative_tip_inverted()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # _std
+    # ══════════════════════════════════════════════════════════════════════════
+    if culprit_feat.endswith("_std"):
+        if direction == "positive":
+            return positive_tip(f"Your {friendly} has a natural, healthy variation throughout.")
+        if feat_dir == "INCREASING":
+            if in_zone:
+                return None, None
+            if val < zone_min:
+                return (
+                    f"Your {friendly} barely varies — it feels flat and robotic. "
+                    f"Let it move more naturally as you speak.", "red"
+                )
+            return (
+                f"Your {friendly} is swinging too much — the variation is distracting. "
+                f"Focus on keeping it smoother and more controlled.", "yellow"
+            )
+        if feat_dir == "DECREASING":
+            if in_zone:
+                return None, None
+            if val > zone_max:
+                return (
+                    f"Your {friendly} variation is too high — "
+                    f"try to keep it more controlled and consistent.", "red"
+                )
+            return (
+                f"Your {friendly} has almost no variation — "
+                f"allow a little natural movement.", "yellow"
+            )
+        # INVERTED_U
+        if in_zone:
+            return None, None
+        if val < zone_min:
+            return (
+                f"Your {friendly} barely varies — it feels unnatural. "
+                f"Let it shift a little more freely.", "red"
+            )
+        return (
+            f"Your {friendly} is varying too much — "
+            f"aim for smoother, more consistent delivery.", "red"
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # _max
+    # ══════════════════════════════════════════════════════════════════════════
+    if culprit_feat.endswith("_max"):
+        if direction == "positive":
+            return positive_tip(f"Your {friendly} reaches strong peak moments — great emphasis.")
+        if feat_dir == "INCREASING":
+            if in_zone:
+                return None, None
+            if val < zone_min:
+                return (
+                    f"Your {friendly} never really peaks — your delivery lacks emphasis moments. "
+                    f"Push it further at key points to hold attention.", "red"
+                )
+            return (
+                f"Your {friendly} peaks too high at times — it can feel overwhelming. "
+                f"Keep your strongest moments more controlled.", "yellow"
+            )
+        if feat_dir == "DECREASING":
+            if in_zone:
+                return None, None
+            if val > zone_max:
+                return (
+                    f"Your {friendly} peaks too high — "
+                    f"reduce the intensity at your strongest moments.", "red"
+                )
+            return (
+                f"Your {friendly} peak moments are very low — "
+                f"allow slightly more range at key points.", "yellow"
+            )
+        # INVERTED_U
+        if in_zone:
+            return None, None
+        if val < zone_min:
+            return (
+                f"Your {friendly} peak moments are too low — "
+                f"push it a little further at key points.", "red"
+            )
+        return (
+            f"Your {friendly} peaks too high — "
+            f"keep your emphasis moments more controlled.", "red"
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # _stability
+    # ══════════════════════════════════════════════════════════════════════════
+    if culprit_feat.endswith("_stability"):
+        if direction == "positive":
+            return positive_tip(f"Your {friendly} is impressively consistent throughout — a real strength.")
+        if in_zone:
+            return None, None
+        if feat_dir == "INCREASING":
+            # higher stability = more consistent = better
+            if val < zone_min:
+                return (
+                    f"Your {friendly} varies quite a lot between moments — it can look uncontrolled. "
+                    f"Focus on keeping movements smooth and intentional.", "red"
+                )
             return (
                 f"Your {friendly} is almost completely frozen — it can look stiff. "
                 f"Allow a little natural, gentle variation.", "yellow"
             )
-        return f"Your {friendly} consistency could be slightly more controlled.", "yellow"
+        if feat_dir == "DECREASING":
+            # lower stability = more variation = better for this feature
+            if val < zone_min:
+                # below zone on DECREASING = too stable/frozen
+                return (
+                    f"Your {friendly} is almost completely frozen — it can look stiff. "
+                    f"Allow a little natural, gentle variation.", "yellow"
+                )
+            # above zone = too erratic
+            return (
+                f"Your {friendly} varies quite a lot between moments — it can look uncontrolled. "
+                f"Focus on keeping movements smooth and intentional.", "red"
+            )
+        # INVERTED_U — middle is best
+        if val < zone_min:
+            return (
+                f"Your {friendly} is almost completely frozen — "
+                f"allow a little more natural variation.", "yellow"
+            )
+        return (
+            f"Your {friendly} varies too much — "
+            f"aim for smoother, more consistent delivery.", "red"
+        )
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # _cv
+    # ══════════════════════════════════════════════════════════════════════════
     if culprit_feat.endswith("_cv"):
         if direction == "positive":
-            base = f"The rhythm of your {friendly} is well-balanced — varied but controlled."
-            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
-            if nudge:
-                return f"{base} {nudge}", "yellow"
-            return base, "green"
-        if val > zone_max:
+            return positive_tip(f"The rhythm of your {friendly} is well-balanced — varied but controlled.")
+        if in_zone:
+            return None, None
+        if feat_dir == "INCREASING":
+            # higher cv = more relative variation = better
+            if val < zone_min:
+                return (
+                    f"Your {friendly} barely changes at all. "
+                    f"Let it vary naturally as you shift between ideas.", "yellow"
+                )
             return (
                 f"Your {friendly} is all over the place — it varies too unpredictably. "
                 f"Aim for consistent, purposeful movements.", "red"
             )
+        if feat_dir == "DECREASING":
+            # lower cv = less variation = better
+            if val > zone_max:
+                return (
+                    f"Your {friendly} is all over the place — it varies too unpredictably. "
+                    f"Aim for consistent, purposeful movements.", "red"
+                )
+            return (
+                f"Your {friendly} barely changes at all. "
+                f"Let it vary naturally as you shift between ideas.", "yellow"
+            )
+        # INVERTED_U
         if val < zone_min:
             return (
                 f"Your {friendly} barely changes at all. "
                 f"Let it vary naturally as you shift between ideas.", "yellow"
             )
-        return f"The rhythm of your {friendly} could feel a little more natural.", "yellow"
+        return (
+            f"Your {friendly} is all over the place — it varies too unpredictably. "
+            f"Aim for consistent, purposeful movements.", "red"
+        )
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # _peak_ratio
+    # ══════════════════════════════════════════════════════════════════════════
     if culprit_feat.endswith("_peak_ratio"):
         if direction == "positive":
-            base = f"Your {friendly} peaks are well-proportioned — you have clear emphasis moments."
-            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
-            if nudge:
-                return f"{base} {nudge}", "yellow"
-            return base, "green"
-        if val > zone_max:
+            return positive_tip(f"Your {friendly} peaks are well-proportioned — you have clear emphasis moments.")
+        if in_zone:
+            return None, None
+        if feat_dir == "INCREASING":
+            # higher peak ratio = stronger peaks relative to baseline = better
+            if val < zone_min:
+                return (
+                    f"Your {friendly} lacks standout moments. "
+                    f"Add occasional emphasis at key points to hold attention.", "red"
+                )
             return (
                 f"Your {friendly} spikes very high at times but stays low otherwise. "
-                f"Rather than occasional big bursts, aim for a steadier, higher baseline level.", "red"
+                f"Aim for a steadier, higher baseline level.", "red"
             )
+        if feat_dir == "DECREASING":
+            # lower peak ratio = better
+            if val > zone_max:
+                return (
+                    f"Your {friendly} spikes very high at times but stays low otherwise. "
+                    f"Aim for a steadier, higher baseline level.", "red"
+                )
+            return (
+                f"Your {friendly} lacks standout moments. "
+                f"Add occasional emphasis at key points to hold attention.", "red"
+            )
+        # INVERTED_U
         if val < zone_min:
             return (
                 f"Your {friendly} lacks standout moments. "
-                f"Add occasional emphasis — a deliberate movement at a key point — "
-                f"to hold the interviewer's attention.", "red"
+                f"Add occasional emphasis at key points to hold attention.", "red"
             )
-        return f"Your {friendly} peak moments could be a bit more deliberate.", "yellow"
+        return (
+            f"Your {friendly} spikes very high at times but stays low otherwise. "
+            f"Aim for a steadier, higher baseline level.", "red"
+        )
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # _skew_approx
+    # ══════════════════════════════════════════════════════════════════════════
     if culprit_feat.endswith("_skew_approx"):
         if direction == "positive":
-            base = f"The distribution of your {friendly} is well-balanced."
-            nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
-            if nudge:
-                return f"{base} {nudge}", "yellow"
-            return base, "green"
-        if val > zone_max:
+            return positive_tip(f"The distribution of your {friendly} is well-balanced.")
+        if in_zone:
+            return None, None
+        if feat_dir == "INCREASING":
+            if val < zone_min:
+                return (
+                    f"Your {friendly} is at its peak almost constantly. "
+                    f"Vary it more so emphasis moments actually stand out.", "yellow"
+                )
             return (
                 f"Your {friendly} stays flat most of the time with sudden spikes. "
                 f"Try to maintain a higher, steadier baseline instead.", "red"
             )
+        if feat_dir == "DECREASING":
+            # lower skew = better
+            if val > zone_max:
+                return (
+                    f"Your {friendly} stays flat most of the time with sudden spikes. "
+                    f"Try to maintain a higher, steadier baseline instead.", "red"
+                )
+            return (
+                f"Your {friendly} is at its peak almost constantly. "
+                f"Vary it more so emphasis moments actually stand out.", "yellow"
+            )
+        # INVERTED_U
         if val < zone_min:
             return (
                 f"Your {friendly} is at its peak almost constantly. "
-                f"Vary it more — so when you do emphasise something, it actually stands out.", "yellow"
+                f"Vary it more so emphasis moments actually stand out.", "yellow"
             )
-        return f"The balance of your {friendly} could be slightly more varied.", "yellow"
+        return (
+            f"Your {friendly} stays flat most of the time with sudden spikes. "
+            f"Try to maintain a higher, steadier baseline instead.", "red"
+        )
 
     return f"Your {friendly} could be adjusted for better impact.", "yellow"
 
 
 def get_granular_feedback(culprit_feat: str, base_feature: str, val: float,
                            zone: dict, direction: str = "negative") -> tuple[str, str]:
-    """
-    Returns (tip_text, status_colour) for one video tip.
-
-    KEY DESIGN RULES:
-    1. zone_direction from the JSON is ground truth — this function never changes it.
-       The frontend reads zone_direction from the tip payload to show
-       "More is better / Less is better / Middle is best". That must reflect the JSON.
-
-    2. For POSITIVE SHAP + outside zone: use _position_nudge() which looks at WHERE
-       the dot sits relative to the zone (val < zone_min → push higher,
-       val > zone_max → dial back). This is always correct regardless of direction.
-
-    3. For NEGATIVE SHAP: give a direct, actionable, plain-English tip.
-       Use val vs zone_min/zone_max to determine the direction of advice.
-    """
     friendly = FRIENDLY_NAMES.get(base_feature, base_feature)
     is_hand  = "hand" in base_feature
     zone_min = zone.get("min", -99) if zone else -99
     zone_max = zone.get("max",  99) if zone else  99
     in_zone  = zone_min <= val <= zone_max
 
-    # Route engineered sub-features to their specialist tip generator
-    if any(culprit_feat.endswith(s) for s in ENGINEERED_SUFFIXES):
-        return _get_engineered_tip(culprit_feat, base_feature, val, zone, direction)
-
-    # Hands not in frame
+    # ── Hand not detected — check FIRST before anything else ─────────────────
     if is_hand and zone and val <= (zone_min + 0.10):
         if direction == "positive":
             return (
-                f"Your hands weren't visible in frame. "
-                f"This kept things stable — but showing them would add even more impact.", "yellow"
+                f"Your hand movement was very minimal during the interview. "
+                f"Subtle gestures still help — try letting your hands move naturally as you speak.", "yellow"
             )
         return (
-            f"Your hands weren't visible in frame during the interview. "
-            f"Try to keep your hands in view — natural hand gestures make you look "
-            f"more engaged and confident.", "red"
+            f"Your hand gestures were very limited during the interview. "
+            f"Natural hand movement while speaking helps you look more engaged and confident — "
+            f"try letting your hands move freely as you would in a normal conversation.", "red"
         )
 
-    # ── Negative SHAP + already in zone ─────────────────────────────────────
+    # ── Route ALL engineered features including _mean, _std, _max ────────────
+    if any(culprit_feat.endswith(s) for s in ENGINEERED_SUFFIXES):
+        tip, status = _get_engineered_tip(culprit_feat, base_feature, val, zone, direction)
+        if tip is None:
+            return (
+                f"Your {friendly} is within the ideal range — keep doing what you're doing.", "yellow"
+            )
+        return tip, status
+
+    # ── Negative SHAP + already in zone ──────────────────────────────────────
     if direction == "negative" and in_zone:
         return (
-            f"Your {friendly} is within the ideal range — "
-            f"this may be slightly affected by other factors. Keep doing what you're doing here.", "yellow"
+            f"Your {friendly} is within the ideal range — keep doing what you're doing.", "yellow"
         )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # POSITIVE SHAP TIPS
-    # Base praise + position-based nudge if outside zone.
-    # _position_nudge uses val vs zone_min/zone_max — never zone_direction.
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Positive SHAP tips ────────────────────────────────────────────────────
     if direction == "positive":
-        nudge = None if in_zone else _position_nudge(val, zone_min, zone_max)
-
-        # Feature-specific base praise
+        nudge = None if in_zone else _direction_nudge(val, zone_min, zone_max, zone.get("direction", "INCREASING"))
         if base_feature == "mouth_expressiveness":
             base = "Your face is expressive and animated — you look engaged and natural."
         elif base_feature == "head_nodding":
@@ -329,14 +542,12 @@ def get_granular_feedback(culprit_feat: str, base_feature: str, val: float,
             base = "Your head position is well-balanced — you look attentive and even-keeled."
         else:
             base = f"Your {friendly} is a key strength — it's well-calibrated and professional."
-
         if nudge:
             return f"{base} {nudge}", "yellow"
         return base, "green"
 
     # ══════════════════════════════════════════════════════════════════════════
     # NEGATIVE SHAP TIPS — specific, plain-English, actionable
-    # Uses val vs zone_min/zone_max to determine the direction of advice.
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── FACIAL EXPRESSIVENESS ─────────────────────────────────────────────────
@@ -525,20 +736,7 @@ def get_granular_feedback(culprit_feat: str, base_feature: str, val: float,
             )
         return "Your head position could be slightly more centered.", "yellow"
 
-    # ── _std raw features ─────────────────────────────────────────────────────
-    if "_std" in culprit_feat:
-        if val < zone_min:
-            return (
-                f"Your {friendly} feels robotic — there's almost no natural variation. "
-                f"Let it move a little more freely as you speak.", "red"
-            )
-        if val > zone_max:
-            return (
-                f"Your {friendly} is too erratic — "
-                f"focus on keeping movements smoother and more controlled.", "red"
-            )
-
-    # ── Generic direction-aware fallback ──────────────────────────────────────
+    # ── Generic fallback ──────────────────────────────────────────────────────
     if val < zone_min:
         return (
             f"Your {friendly} is lower than the ideal range — "
@@ -636,32 +834,26 @@ def build_group_results(shap_values_dict, scaled_stats_dict, overall_score, base
                 if base in seen_bases:
                     continue
 
-                # Use BASE feature's val and zone for the bar display.
-                # culprit_feat (e.g. smile_intensity_cv) routes which tip branch
-                # to use, but the slider shows the BASE feature's position.
-                base_val  = scaled_stats_dict.get(f"{base}_mean", scaled_stats_dict.get(base, 0))
-                base_zone = models["golden_zones"].get(base, models["golden_zones"].get(feat, {}))
+                culprit_val  = scaled_stats_dict.get(feat, 0)
+                culprit_zone = models["golden_zones"].get(feat, {})
 
                 tip_text, tip_status = get_granular_feedback(
-                    feat, base, base_val, base_zone, direction=dir_type)
+                    feat, base, culprit_val, culprit_zone, direction=dir_type)
+                if tip_text is None:
+                    continue
 
                 tips.append({
-                    "feature":   feat,
-                    "base":      base,
-                    "friendly":  FRIENDLY_NAMES.get(base, base),
-                    "shap":      round(float(shap_val), 4),
-                    "direction": dir_type,
-                    "tip":       tip_text,
-                    "status":    tip_status,
-                    # ── Bar display fields ──────────────────────────────────
-                    # val and zone_min/zone_max are for the EliteZoneBar slider
-                    "val":       round(float(base_val), 4),
-                    "zone_min":  round(float(base_zone.get("min", -99)), 4),
-                    "zone_max":  round(float(base_zone.get("max",  99)), 4),
-                    # zone_direction is ALWAYS from the raw JSON — never overridden.
-                    # The frontend reads this to show "More is better / Less is better /
-                    # Middle is best". It must reflect the calibration data, not tip logic.
-                    "zone_direction": base_zone.get("direction", "INCREASING"),
+                    "feature":        feat,
+                    "base":           base,
+                    "friendly":       FRIENDLY_NAMES.get(base, base),
+                    "shap":           round(float(shap_val), 4),
+                    "direction":      dir_type,
+                    "tip":            tip_text,
+                    "status":         tip_status,
+                    "val":            round(float(culprit_val), 4),
+                    "zone_min":       round(float(culprit_zone.get("min", -99)), 4),
+                    "zone_max":       round(float(culprit_zone.get("max",  99)), 4),
+                    "zone_direction": culprit_zone.get("direction", "INCREASING"),
                 })
                 seen_bases.add(base)
                 count += 1
@@ -768,10 +960,10 @@ async def lifespan(app: FastAPI):
         models["lstm_session"] = ort.InferenceSession(LSTM_MODEL_PATH)
         print(f"   ONNX LSTM v2 loaded")
 
-        expl_model                  = joblib.load(EXPLAINER_MODEL_PATH)
+        expl_model                   = joblib.load(EXPLAINER_MODEL_PATH)
         models["explainer_features"] = joblib.load(EXPLAINER_FEATURES_PATH)
-        models["scaler"]            = joblib.load(SCALER_PATH)
-        models["shap_explainer"]    = shap.TreeExplainer(expl_model)
+        models["scaler"]             = joblib.load(SCALER_PATH)
+        models["shap_explainer"]     = shap.TreeExplainer(expl_model)
         print(f"   XGBoost explainer loaded ({len(models['explainer_features'])} features)")
 
         with open(CALIBRATION_PATH, "r") as f:
@@ -820,15 +1012,15 @@ async def run_video_analysis(turn_id: int, video_path: str, interview_id: str, q
         elapsed_ms   = int((time.time() - start_time) * 1000)
 
         result = {
-            "interviewTurnId":    turn_id,
-            "confidenceLevel":    round(scaled_score, 4),
+            "interviewTurnId":     turn_id,
+            "confidenceLevel":     round(scaled_score, 4),
             "confidenceLabelText": label,
-            "rawScore":           round(scaled_score, 4),
-            "modelVersion":       "v2.0-lstm-shap",
-            "status":             "completed",
-            "processingTimeMs":   elapsed_ms,
-            "processedAt":        datetime.now().isoformat(),
-            "groupResults":       result_data["group_results"],
+            "rawScore":            round(scaled_score, 4),
+            "modelVersion":        "v2.0-lstm-shap",
+            "status":              "completed",
+            "processingTimeMs":    elapsed_ms,
+            "processedAt":         datetime.now().isoformat(),
+            "groupResults":        result_data["group_results"],
         }
 
         logger.info(f"Turn {turn_id} done — score={scaled_score:.4f}, label={label}, {elapsed_ms}ms")
