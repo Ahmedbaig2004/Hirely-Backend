@@ -485,18 +485,7 @@ def get_granular_feedback(culprit_feat: str, base_feature: str, val: float,
     zone_max = zone.get("max",  99) if zone else  99
     in_zone  = zone_min <= val <= zone_max
 
-    # ── Hand not detected — check FIRST before anything else ─────────────────
-    if is_hand and zone and val <= (zone_min + 0.10):
-        if direction == "positive":
-            return (
-                f"Your hand movement was very minimal during the interview. "
-                f"Subtle gestures still help — try letting your hands move naturally as you speak.", "yellow"
-            )
-        return (
-            f"Your hand gestures were very limited during the interview. "
-            f"Natural hand movement while speaking helps you look more engaged and confident — "
-            f"try letting your hands move freely as you would in a normal conversation.", "red"
-        )
+
 
     # ── Route ALL engineered features including _mean, _std, _max ────────────
     if any(culprit_feat.endswith(s) for s in ENGINEERED_SUFFIXES):
