@@ -904,7 +904,30 @@ def _get_eligible_features(
 # ════════════════════════════════════════════════════════════════════════════════
 # GROUP RESULTS BUILDER
 # ════════════════════════════════════════════════════════════════════════════════
-
+def _process_tips(features, dir_type, limit, tips, seen, feature_values, golden_zones):
+    count = 0
+    for feat, shap_val in features:
+        if count >= limit or feat in seen:
+            continue
+        val      = feature_values.get(feat, 0)
+        zone     = golden_zones.get(feat, {})
+        tip_text, tip_status = _get_coaching_tip(feat, val, zone, dir_type)
+        if tip_text is None:
+            continue
+        tips.append({
+            "feature":        feat,
+            "friendly":       FRIENDLY_NAMES.get(feat, feat),
+            "shap":           round(float(shap_val), 4),
+            "value":          round(float(val), 4),
+            "direction":      dir_type,
+            "tip":            tip_text,
+            "status":         tip_status,
+            "zone_min":       round(float(zone.get("min", -99)), 4),
+            "zone_max":       round(float(zone.get("max",  99)), 4),
+            "zone_direction": zone.get("direction", "INCREASING"),
+        })
+        seen.add(feat)
+        count += 1
 def build_audio_group_results(
     shap_dict: dict,
     feature_values: dict,
@@ -917,10 +940,29 @@ def build_audio_group_results(
     explainer_prediction = baseline_pct
     group_results        = {}
 
+    # ── Sensitivity mirrors _get_eligible_features exactly ───────────────────
+    sensitivity_neg = (
+    0.0008 if overall_score < 0.65 else   # was 0.001 — open slightly, catch bottom 2
+    0.006  if overall_score > 0.80 else   # was 0.015 — much less aggressive
+    0.003                                  # was 0.005 — middle band loosened
+    )
+    sensitivity_pos = 0.002  # was 0.003 — slightly looser for positives too
+
     for group_name, group_info in FEEDBACK_GROUPS.items():
         members = group_info["members"]
 
-        group_shap_sum = sum(v for f, v in shap_dict.items() if f in members)
+        # ── Filtered sum — small noisy SHAPs excluded before summing ─────────
+        group_shap_sum = sum(
+            v for f, v in shap_dict.items()
+            if f in members
+            and f not in SKIP_COACHING
+            and (
+                (v < 0 and v < -sensitivity_neg)
+                or
+                (v > 0 and v > sensitivity_pos)
+            )
+        )
+
         impact_points  = group_shap_sum * 100
         explainer_prediction += impact_points
 
@@ -935,49 +977,21 @@ def build_audio_group_results(
             shap_dict, members, feature_values, "positive", overall_score, golden_zones
         )
 
-        if   status == "green":  p_limit, n_limit = 3, 1
+        if   status == "green":  p_limit, n_limit = 2, 1
         elif status == "yellow": p_limit, n_limit = 2, 2
-        else:                    p_limit, n_limit = 1, 3
+        else:                    p_limit, n_limit = 1, 2
 
         tips: list = []
         seen: set  = set()
 
-        def process_tips(features, dir_type, limit):
-            count = 0
-            for feat, shap_val in features:
-                if count >= limit or feat in seen:
-                    continue
-                val  = feature_values.get(feat, 0)
-                zone = golden_zones.get(feat, {})
 
-                tip_text, tip_status = _get_coaching_tip(feat, val, zone, dir_type)
-                if tip_text is None:
-                    continue  # suppressed (in-zone negative SHAP)
-
-                tips.append({
-                    "feature":        feat,
-                    "friendly":       FRIENDLY_NAMES.get(feat, feat),
-                    "shap":           round(float(shap_val), 4),
-                    "value":          round(float(val), 4),
-                    "direction":      dir_type,
-                    "tip":            tip_text,
-                    "status":         tip_status,
-                    "zone_min":       round(float(zone.get("min", -99)), 4),
-                    "zone_max":       round(float(zone.get("max",  99)), 4),
-                    # zone_direction is ground truth from JSON — frontend reads
-                    # this to show "More is better / Less is better / Middle is best"
-                    "zone_direction": zone.get("direction", "INCREASING"),
-                })
-                seen.add(feat)
-                count += 1
 
         if status == "red":
-            process_tips(neg_features, "negative", n_limit)
-            process_tips(pos_features, "positive", p_limit)
+            _process_tips(neg_features, "negative", n_limit, tips, seen, feature_values, golden_zones)
+            _process_tips(pos_features, "positive", p_limit, tips, seen, feature_values, golden_zones)
         else:
-            process_tips(pos_features, "positive", p_limit)
-            process_tips(neg_features, "negative", n_limit)
-
+            _process_tips(pos_features, "positive", p_limit, tips, seen, feature_values, golden_zones)
+            _process_tips(neg_features, "negative", n_limit, tips, seen, feature_values, golden_zones)
         group_results[group_name] = {
             "impact_points": round(float(impact_points), 1),
             "status":        status,
