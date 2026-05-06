@@ -100,8 +100,6 @@ export const getAnalytics = async (req, res) => {
             fillerCount: true,
             hedgingCount: true,
             sentenceRestarts: true,
-            relevanceScore: true,
-            specificityScore: true,
             voiceAnalysis: {
               select: {
                 confidenceLevel: true,
@@ -139,7 +137,7 @@ export const getAnalytics = async (req, res) => {
         byType: [],
         modality: { technical: null, delivery: null, voice: null, video: null, contentQuality: null, combined: null },
         topicHeatmap: [],
-        delivery: { avgFillers: null, avgHedging: null, avgRestarts: null, avgRelevance: null, avgSpecificity: null },
+        delivery: { avgFillers: null, avgHedging: null, avgRestarts: null },
         video: { avgConfidence: null, avgRawScore: null, analyzedTurns: 0, labelBreakdown: [], topSignals: [] },
         decisionBreakdown: [],
       });
@@ -277,12 +275,6 @@ export const getAnalytics = async (req, res) => {
         : null,
       avgRestarts: avg(turnsWithDelivery.map((t) => t.sentenceRestarts)) !== null
         ? Math.round(avg(turnsWithDelivery.map((t) => t.sentenceRestarts)) * 10) / 10
-        : null,
-      avgRelevance: avg(turnsWithDelivery.map((t) => t.relevanceScore)) !== null
-        ? Math.round(avg(turnsWithDelivery.map((t) => t.relevanceScore)))
-        : null,
-      avgSpecificity: avg(turnsWithDelivery.map((t) => t.specificityScore)) !== null
-        ? Math.round(avg(turnsWithDelivery.map((t) => t.specificityScore)))
         : null,
     };
 

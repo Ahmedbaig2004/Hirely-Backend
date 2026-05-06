@@ -10,7 +10,7 @@ const DeliveryAnalysisSchema = z.object({
     .min(0)
     .max(100)
     .describe(
-      "Overall delivery quality score (0-100). Considers structure, clarity, filler usage, hedging, specificity, and relevance.",
+      "Overall delivery quality score (0-100). Considers structure, clarity, filler usage, hedging, and sentence flow.",
     ),
   fillerCount: z
     .number()
@@ -43,33 +43,21 @@ const DeliveryAnalysisSchema = z.object({
     .describe(
       "Number of times the speaker started a sentence, stopped, and restarted",
     ),
-  relevanceScore: z
-    .number()
-    .min(0)
-    .max(100)
-    .describe(
-      "How well the answer addresses the specific question asked (0-100)",
-    ),
-  specificityScore: z
-    .number()
-    .min(0)
-    .max(100)
-    .describe(
-      "Use of concrete examples, numbers, specific technologies vs vague generalities (0-100)",
-    ),
   topImprovement: z
     .string()
     .describe(
-      "The single most impactful thing to improve. Actionable and specific.",
+      "The single most impactful communication improvement. Keep it actionable and focused on delivery, not technical content.",
     ),
   topStrength: z
     .string()
-    .describe("The single strongest aspect of this answer's delivery"),
+    .describe(
+      "The single strongest communication aspect of this answer's delivery.",
+    ),
 });
 
 /**
  * Analyze transcript delivery quality using Gemini structured output.
- * Returns actionable feedback on fillers, hedging, structure, relevance, specificity.
+ * Returns actionable feedback on fillers, hedging, structure, and flow.
  *
  * @param {string} transcript - The candidate's answer text
  * @param {string} question - The interview question that was asked
@@ -97,16 +85,18 @@ CANDIDATE'S ANSWER (transcribed from speech):
 TASK: Analyze the DELIVERY quality of this answer — not whether it's technically correct, but HOW it was communicated.
 
 Scoring guide:
-- deliveryScore: 85-100 = excellent (clear, structured, specific, no fillers). 70-84 = good (minor issues). 50-69 = needs work (noticeable fillers, vague, poor structure). Below 50 = significant delivery problems.
-- relevanceScore: Does the answer actually address what was asked? 90+ = directly on-topic with depth. 70-89 = addresses it but wanders. Below 70 = partially or mostly off-topic.
-- specificityScore: 90+ = uses concrete examples, names, numbers, specific technologies. 70-89 = some specifics mixed with generalities. Below 70 = mostly vague statements like "I have experience with that".
+- deliveryScore: 85-100 = excellent (clear, structured, concise, minimal fillers). 70-84 = good (minor communication issues). 50-69 = needs work (noticeable fillers, hedging, or weak structure). Below 50 = significant delivery problems.
+- Focus scoring on communication only, not technical depth or completeness.
 
 Important:
 ${fillerInstructions}
 - Hedging phrases indicate lack of confidence: "I think maybe", "probably", "not sure but", "I guess", "sort of like".
 - Sentence restarts: "I worked on — well actually I was responsible for —" counts as 1 restart.
 - Be precise with counts — do not overcount or undercount.
-- The topImprovement should be something the candidate can practice and fix before their next interview.`;
+- Focus only on communication delivery: structure, fillers, hedging, pauses, clarity, directness, and sentence flow.
+- Do not critique technical correctness, missing technical depth, examples, trade-offs, or content completeness.
+- The topImprovement should be something the candidate can practice and fix before their next interview.
+- The topStrength should also describe communication only, not technical knowledge.`;
 
   try {
     return await generateStructured(prompt, DeliveryAnalysisSchema);

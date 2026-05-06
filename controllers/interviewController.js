@@ -761,8 +761,6 @@ async function doFinalization(sessionId, session) {
             fillerCount: turn.deliveryAnalysis?.fillerCount ?? null,
             hedgingCount: turn.deliveryAnalysis?.hedgingCount ?? null,
             sentenceRestarts: turn.deliveryAnalysis?.sentenceRestarts ?? null,
-            relevanceScore: turn.deliveryAnalysis?.relevanceScore ?? null,
-            specificityScore: turn.deliveryAnalysis?.specificityScore ?? null,
             deliveryFeedback:
               turn.deliveryAnalysis || turn.recommendedDoc
                 ? {

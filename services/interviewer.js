@@ -647,7 +647,7 @@ export async function generateFinalReport(
       ? turnsWithDelivery
           .map((t, i) => {
             const d = t.deliveryAnalysis;
-            return `Q${i + 1}: Delivery ${d.deliveryScore}/100, Fillers: ${d.fillerCount}, Hedging: ${d.hedgingCount}, Relevance: ${d.relevanceScore}/100, Specificity: ${d.specificityScore}/100. Top improvement: ${d.topImprovement}`;
+            return `Q${i + 1}: Delivery ${d.deliveryScore}/100, Fillers: ${d.fillerCount}, Hedging: ${d.hedgingCount}, Restarts: ${d.sentenceRestarts}. Top communication improvement: ${d.topImprovement}. Top communication strength: ${d.topStrength}`;
           })
           .join("\n")
       : "No delivery analysis available.";
@@ -764,22 +764,6 @@ export async function generateFinalReport(
           totalRestarts: turnsWithDelivery.reduce(
             (s, t) => s + t.deliveryAnalysis.sentenceRestarts,
             0,
-          ),
-          avgRelevance: parseFloat(
-            (
-              turnsWithDelivery.reduce(
-                (s, t) => s + t.deliveryAnalysis.relevanceScore,
-                0,
-              ) / turnsWithDelivery.length
-            ).toFixed(1),
-          ),
-          avgSpecificity: parseFloat(
-            (
-              turnsWithDelivery.reduce(
-                (s, t) => s + t.deliveryAnalysis.specificityScore,
-                0,
-              ) / turnsWithDelivery.length
-            ).toFixed(1),
           ),
         }
       : null;
