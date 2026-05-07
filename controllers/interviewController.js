@@ -81,6 +81,14 @@ export const initInterview = async (req, res) => {
           error: "Job description must be less than 10000 characters",
         });
       }
+      const { questionCount } = req.body;
+      const count = parseInt(questionCount, 10);
+      if (!count || count < 1 || count > 10) {
+        return res
+          .status(400)
+          .json({ error: "questionCount must be between 1 and 10" });
+      }
+      config = { questionCount: count };
     } else if (interviewType === "TECHNICAL") {
       const { stack, difficulty, questionCount } = req.body;
       if (!stack || !stack.trim()) {
@@ -233,11 +241,7 @@ export const submitAnswer = async (req, res) => {
       roleContext = session?.jobDescription || "";
     }
 
-    // Dynamic max questions: config.questionCount for Technical/Behavioral, JOB_SPECIFIC_MAX_QUESTIONS otherwise
-    const maxQuestions =
-      sessionInterviewType !== "JOB_SPECIFIC" && sessionConfig.questionCount
-        ? sessionConfig.questionCount
-        : JOB_SPECIFIC_MAX_QUESTIONS;
+    const maxQuestions = sessionConfig.questionCount || JOB_SPECIFIC_MAX_QUESTIONS;
 
     // 2.5. Translate Roman Urdu → English for evaluation (Urdu answers only)
     // English answers are used directly; original Roman Urdu is kept for display/storage
