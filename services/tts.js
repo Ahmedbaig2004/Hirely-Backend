@@ -5,9 +5,7 @@ import { normalizeForSpeech } from "./textNormalizer.js";
 dotenv.config();
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
-const F5_TTS_URL =
-  process.env.F5_TTS_URL ||
-  "https://ahmedbaig6512--hirely-voice-engine-f5voiceengine-generate.modal.run";
+const F5_TTS_URL = process.env.F5_TTS_URL;
 
 /**
  * Generate TTS audio for the given text.
