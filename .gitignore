@@ -6,3 +6,4 @@ venv/
 /generated/prisma
 __pycache__/
 *.py[cod]
+.Hirely_Secret
